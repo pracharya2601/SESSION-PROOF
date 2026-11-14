@@ -1,7 +1,7 @@
-import { lazy, Suspense, useCallback, useEffect, useState } from "react";
-import { AnimatePresence, motion, MotionConfig, useReducedMotion } from "framer-motion";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { motion, MotionConfig, useReducedMotion } from "framer-motion";
 import type { HealthResponse } from "../contracts";
-import { api, ApiClientError, type MeResponse } from "./api";
+import { api, ApiClientError, SERVER_RECOVERED_EVENT, type MeResponse } from "./api";
 import { ErrorNotice } from "./components/ErrorNotice";
 import { ToastProvider } from "./design/Toast";
 import { Skeleton } from "./design/Skeleton";
@@ -13,8 +13,12 @@ import { TopBar } from "./shell/TopBar";
 import { navKeyOf, parseHash, ROUTE_TITLES, routeKey, type Route } from "./shell/routes";
 import { useTheme } from "./shell/theme";
 import { navigationAllowed } from "./shell/navGuard";
+import { lazyWithReload as lazy } from "./shell/chunkReload";
+import { ErrorBoundary } from "./shell/ErrorBoundary";
+import { ServerBanner } from "./shell/ServerBanner";
 import Today from "./pages/Today";
 
+// Route chunks. lazyWithReload reloads the tab once when a chunk is gone after a redeploy.
 const Review = lazy(() => import("./pages/Review"));
 const Files = lazy(() => import("./pages/Files"));
 const Connections = lazy(() => import("./pages/Connections"));
@@ -64,17 +68,22 @@ function PageFallback() {
 
 export default function App() {
   return (
-    <MotionConfig reducedMotion="user">
-      <ToastProvider>
-        {REVIEW_LINK_TOKEN ? (
-          <Suspense fallback={<PageFallback />}>
-            <ReviewLink token={REVIEW_LINK_TOKEN} />
-          </Suspense>
-        ) : (
-          <AppInner />
-        )}
-      </ToastProvider>
-    </MotionConfig>
+    <ErrorBoundary scope="app">
+      <MotionConfig reducedMotion="user">
+        <ToastProvider>
+          <ServerBanner />
+          {REVIEW_LINK_TOKEN ? (
+            <ErrorBoundary scope="page">
+              <Suspense fallback={<PageFallback />}>
+                <ReviewLink token={REVIEW_LINK_TOKEN} />
+              </Suspense>
+            </ErrorBoundary>
+          ) : (
+            <AppInner />
+          )}
+        </ToastProvider>
+      </MotionConfig>
+    </ErrorBoundary>
   );
 }
 
@@ -115,7 +124,7 @@ function AppInner() {
     api
       .health()
       .then(setHealth)
-      .catch(() => setHealth(null));
+      .catch(() => undefined); // keep the last known health; ServerBanner reports the outage
     try {
       const me = await api.me();
       setAuth({ kind: "signedIn", me });
@@ -127,6 +136,17 @@ function AppInner() {
 
   useEffect(() => {
     void loadMe();
+  }, [loadMe]);
+
+  // Server came back (ServerBanner): retry the account load if it was what failed.
+  const authRef = useRef(auth);
+  authRef.current = auth;
+  useEffect(() => {
+    const onRecovered = () => {
+      if (authRef.current.kind === "error") void loadMe();
+    };
+    window.addEventListener(SERVER_RECOVERED_EVENT, onRecovered);
+    return () => window.removeEventListener(SERVER_RECOVERED_EVENT, onRecovered);
   }, [loadMe]);
 
   async function signIn() {
@@ -220,8 +240,10 @@ function AppInner() {
               <SignIn identity={DEMO_IDENTITY} busy={signInBusy} error={signInError} onSignIn={() => void signIn()} />
             )}
             {signedIn && (
-              <AnimatePresence mode="wait" initial={false}>
-                <motion.div key={routeKey(route)} className="page" variants={variants} initial="initial" animate="enter" exit="exit">
+              // Enter-only fade keyed by route. No exit animation: AnimatePresence mode="wait"
+              // held the next page back until the old one finished animating out.
+              <motion.div key={routeKey(route)} className="page" variants={variants} initial="initial" animate="enter">
+                <ErrorBoundary scope="page" resetKey={routeKey(route)}>
                   <Suspense fallback={<PageFallback />}>
                     {route.name === "today" && <Today devMode={devMode} />}
                     {route.name === "session" && <Review sessionId={route.id} onBack={goHome} />}
@@ -236,8 +258,8 @@ function AppInner() {
                     {route.name === "run" && <RunDetail runId={route.runId} />}
                     {route.name === "visit" && <RecordVisit visitId={route.id} />}
                   </Suspense>
-                </motion.div>
-              </AnimatePresence>
+                </ErrorBoundary>
+              </motion.div>
             )}
           </main>
         </div>

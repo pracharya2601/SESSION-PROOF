@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, useReducedMotion } from "framer-motion";
 import { Activity, ChevronRight, RefreshCw, Workflow } from "lucide-react";
 import type { RunSummary } from "../../contracts";
@@ -34,6 +34,18 @@ function mergeFirstPage(prev: RunSummary[], first: RunSummary[]): RunSummary[] {
   const seen = new Set(first.map((r) => r.runId));
   return [...first, ...prev.filter((r) => !seen.has(r.runId))];
 }
+
+/**
+ * One list item. Memoized, and only active runs get the per-second clock: finished rows get a
+ * 30 s clock, so a 1 s tick re-renders (and layout-measures) only the rows that are moving.
+ */
+const RunItem = memo(function RunItem({ run, now, variants, layout }: { run: RunSummary; now: number; variants: typeof fadeUp; layout: boolean }) {
+  return (
+    <motion.li variants={variants} layout={layout ? "position" : undefined}>
+      <RunRow run={run} now={now} />
+    </motion.li>
+  );
+});
 
 function RunRow({ run, now }: { run: RunSummary; now: number }) {
   return (
@@ -104,6 +116,7 @@ export default function Runs() {
   const anyActive = !!runs?.some(isActive);
   usePoll(() => loadFirst("merge"), anyActive, 3000, 200);
   const now = useNow(anyActive || !!runs?.length, anyActive ? 1000 : 30000);
+  const coarseNow = Math.floor(now / 30000) * 30000;
 
   async function loadMore() {
     if (!cursor || loadingMore) return;
@@ -194,9 +207,7 @@ export default function Runs() {
         <>
           <motion.ul key={filter} className="rn-list" variants={stagger} initial="hidden" animate="show" aria-label="Runs">
               {runs.map((r) => (
-                <motion.li key={r.runId} variants={item} layout={reduce ? undefined : "position"}>
-                  <RunRow run={r} now={now} />
-                </motion.li>
+                <RunItem key={r.runId} run={r} now={isActive(r) ? now : coarseNow} variants={item} layout={!reduce} />
               ))}
           </motion.ul>
           {cursor && (

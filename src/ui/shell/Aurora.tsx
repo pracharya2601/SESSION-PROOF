@@ -1,4 +1,4 @@
-/** Animated mesh/aurora backdrop. Pure CSS transforms (see styles/app.css); static under reduced motion. */
+/** Static mesh/aurora backdrop (see styles/app.css). Deliberately not animated: it sat under every translucent surface. */
 export function Aurora() {
   return (
     <div className="aurora" aria-hidden="true">

@@ -84,10 +84,11 @@
   background: conic-gradient(from var(--glow-angle, 0deg), transparent 0 20%, color-mix(in srgb, var(--accent) 80%, transparent), color-mix(in srgb, var(--accent-2) 80%, transparent), transparent 80% 100%);
   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   -webkit-mask-composite: xor; mask-composite: exclude;
-  animation: ds-glow-spin 6s linear infinite;
+  /* Static angle. Spinning it animated a registered custom property, which re-runs style and
+     paint on the main thread every frame for every glow card. */
+  --glow-angle: 200deg;
 }
 @property --glow-angle { syntax: "<angle>"; initial-value: 0deg; inherits: false; }
-@keyframes ds-glow-spin { to { --glow-angle: 360deg; } }
 
 /* ---------- Badge ---------- */
 .ds-badge {

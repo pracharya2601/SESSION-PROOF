@@ -1,4 +1,4 @@
-import { forwardRef, type HTMLAttributes } from "react";
+import { forwardRef, useRef, type HTMLAttributes } from "react";
 import { motion, useReducedMotion, type HTMLMotionProps } from "framer-motion";
 import { cx } from "./cx";
 import { softSpring } from "./motion";
@@ -27,6 +27,10 @@ export const Card = forwardRef<HTMLDivElement, CardProps>(function Card(
 ) {
   const reduce = useReducedMotion();
   const Comp = motion[as] as typeof motion.div;
+  // Pointer highlight: at most one rect read + style write per frame (pointermove fires far
+  // more often than frames, and each getBoundingClientRect after a style write forces layout).
+  const pending = useRef<{ el: HTMLElement; x: number; y: number } | null>(null);
+  const frame = useRef(0);
   return (
     <Comp
       ref={ref}
@@ -35,10 +39,18 @@ export const Card = forwardRef<HTMLDivElement, CardProps>(function Card(
       whileTap={interactive && !reduce ? { scale: 0.99 } : undefined}
       transition={softSpring}
       onPointerMove={(e) => {
-        if (interactive) {
-          const r = e.currentTarget.getBoundingClientRect();
-          e.currentTarget.style.setProperty("--mx", `${e.clientX - r.left}px`);
-          e.currentTarget.style.setProperty("--my", `${e.clientY - r.top}px`);
+        if (interactive && !reduce) {
+          pending.current = { el: e.currentTarget, x: e.clientX, y: e.clientY };
+          if (!frame.current) {
+            frame.current = window.requestAnimationFrame(() => {
+              frame.current = 0;
+              const p = pending.current;
+              if (!p) return;
+              const r = p.el.getBoundingClientRect();
+              p.el.style.setProperty("--mx", `${p.x - r.left}px`);
+              p.el.style.setProperty("--my", `${p.y - r.top}px`);
+            });
+          }
         }
         onPointerMove?.(e);
       }}

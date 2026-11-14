@@ -18,8 +18,7 @@
   display: flex; flex-direction: column; gap: var(--sp-4);
   padding: var(--sp-4) var(--sp-3);
   border-right: 1px solid var(--border);
-  background: color-mix(in srgb, var(--bg-elev) 70%, transparent);
-  backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+  background: color-mix(in srgb, var(--bg-elev) 92%, transparent);
   overflow: hidden;
 }
 .brand { display: flex; align-items: center; gap: 10px; padding: 6px 8px; color: var(--text); text-decoration: none; border-radius: var(--r-md); min-height: 44px; }
@@ -54,8 +53,8 @@
 .topbar {
   position: sticky; top: 0; z-index: 15;
   border-bottom: 1px solid var(--border);
-  background: color-mix(in srgb, var(--bg) 66%, transparent);
-  backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+  background: color-mix(in srgb, var(--bg) 80%, transparent);
+  backdrop-filter: var(--blur-chrome); -webkit-backdrop-filter: var(--blur-chrome);
 }
 .topbar-inner { display: flex; align-items: center; gap: var(--sp-4); height: var(--topbar-h); padding: 0 var(--sp-6) 0 var(--sp-8); }
 .topbar-logo { display: none; }
@@ -130,7 +129,7 @@
   box-shadow: var(--shadow-lg), 0 0 120px -40px color-mix(in srgb, var(--accent) 60%, transparent);
 }
 .signin-logo { position: relative; width: 52px; height: 52px; margin-bottom: var(--sp-2); }
-.signin-logo-halo { position: absolute; inset: -24px; border-radius: 50%; background: radial-gradient(circle, color-mix(in srgb, var(--accent) 45%, transparent), transparent 70%); animation: ds-breathe 4s ease-in-out infinite; }
+.signin-logo-halo { position: absolute; inset: -24px; border-radius: 50%; background: radial-gradient(circle, color-mix(in srgb, var(--accent) 45%, transparent), transparent 70%); }
 .signin-logo .logo { position: relative; }
 .signin-title { font-size: var(--text-3xl); font-weight: 700; letter-spacing: -0.035em; line-height: 1.08; }
 .signin-sub { font-size: var(--text-sm); }
@@ -160,8 +159,8 @@
   .signin-title { font-size: var(--text-2xl); }
   .bottom-nav {
     display: block; position: fixed; z-index: 30; left: 10px; right: 10px; bottom: calc(10px + env(safe-area-inset-bottom));
-    background: color-mix(in srgb, var(--surface-solid) 82%, transparent);
-    backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+    background: color-mix(in srgb, var(--surface-solid) 88%, transparent);
+    backdrop-filter: var(--blur-chrome); -webkit-backdrop-filter: var(--blur-chrome);
     border: 1px solid var(--border-strong); border-radius: var(--r-xl); box-shadow: var(--shadow-lg);
   }
   .bottom-nav ul { list-style: none; margin: 0; padding: 6px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
@@ -177,3 +176,32 @@
 @media (max-width: 380px) {
   .bn-link span { font-size: 10px; }
 }
+
+/* ---------- error boundary ---------- */
+.eb { display: grid; place-items: center; padding: var(--sp-8) var(--sp-4); }
+.eb-app { min-height: 100dvh; position: relative; z-index: 1; }
+.eb-card {
+  width: 100%; max-width: 520px; padding: var(--sp-6); display: flex; flex-direction: column; gap: var(--sp-3);
+  background: var(--surface-solid); border: 1px solid var(--border-strong); border-radius: var(--r-lg); box-shadow: var(--shadow-md);
+}
+.eb-title { margin: 0; font-size: var(--text-xl); letter-spacing: -0.02em; }
+.eb-text { margin: 0; color: var(--text-2); font-size: var(--text-sm); }
+.eb-actions { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+.eb-details { font-size: var(--text-xs); color: var(--muted); }
+.eb-details summary { cursor: pointer; }
+.eb-details pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 240px; overflow: auto; margin: var(--sp-2) 0 0; padding: var(--sp-3); border-radius: var(--r-sm); background: var(--surface-2); }
+
+/* ---------- server-unavailable banner ---------- */
+.server-banner {
+  position: fixed; z-index: 60; left: 50%; top: 10px; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 10px; max-width: calc(100vw - 24px);
+  padding: 8px 10px 8px 14px; border-radius: var(--r-full);
+  background: var(--surface-solid); color: var(--text); font-size: var(--text-sm);
+  border: 1px solid color-mix(in srgb, var(--warning) 55%, var(--border)); box-shadow: var(--shadow-lg);
+}
+.server-banner-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--warning); flex-shrink: 0; }
+.server-banner-btn {
+  font: inherit; font-weight: 600; font-size: var(--text-xs); color: var(--text); cursor: pointer; white-space: nowrap;
+  padding: 4px 10px; border-radius: var(--r-full); border: 1px solid var(--border-strong); background: var(--surface-2);
+}
+.server-banner-btn:disabled { opacity: 0.6; cursor: default; }

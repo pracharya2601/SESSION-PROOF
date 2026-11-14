@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AnimatePresence, LayoutGroup, motion, useReducedMotion } from "framer-motion";
 import {
   ArrowRight,
@@ -15,7 +15,7 @@ import {
   TimerReset,
 } from "lucide-react";
 import type { SessionStatus, SessionSummary, SyncSettingsView } from "../../contracts";
-import { api, ApiClientError } from "../api";
+import { api, ApiClientError, SERVER_RECOVERED_EVENT } from "../api";
 import { ErrorNotice } from "../components/ErrorNotice";
 import { ApprovalsCard } from "../components/notify/ApprovalsCard";
 import { formatCents, formatTimeRange } from "../components/format";
@@ -38,8 +38,7 @@ import {
   useToast,
 } from "../design";
 
-const POLL_INTERVAL_MS = 3000;
-const POLL_MAX = 40;
+import { nextPollDelay, POLL_FAST_MS, POLL_MAX } from "./todayPolling";
 
 function isEstimate(s: SessionSummary): boolean {
   const flag = (s as SessionSummary & { isEstimate?: unknown }).isEstimate;
@@ -95,13 +94,15 @@ function apiErrorDetail(err: unknown): string {
   return err instanceof Error ? err.message : "Something went wrong.";
 }
 
+type LoadState = { kind: "loading" } | { kind: "ready" } | { kind: "error"; error: unknown };
+/** One shared object so setLoad(READY) on every poll is a no-op re-render-wise. */
+const READY: LoadState = { kind: "ready" };
+
 export default function Today({ devMode }: { devMode: boolean }) {
   const toast = useToast();
   const reduce = useReducedMotion();
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
-  const [load, setLoad] = useState<{ kind: "loading" } | { kind: "ready" } | { kind: "error"; error: unknown }>({
-    kind: "loading",
-  });
+  const [load, setLoad] = useState<LoadState>({ kind: "loading" });
   const [pollError, setPollError] = useState<unknown>(null);
   const [polling, setPolling] = useState(false);
   const [pollExhausted, setPollExhausted] = useState(false);
@@ -112,6 +113,11 @@ export default function Today({ devMode }: { devMode: boolean }) {
 
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pollCount = useRef(0);
+  const pollErrors = useRef(0);
+  const lastList = useRef<SessionSummary[] | null>(null);
+  /** A tick that came due while the tab was hidden; run on visibilitychange. */
+  const pausedTick = useRef(false);
+  const lastSig = useRef<string>("");
   const mounted = useRef(true);
   const prevStatus = useRef<Map<string, SessionStatus> | null>(null);
 
@@ -131,6 +137,10 @@ export default function Today({ devMode }: { devMode: boolean }) {
         }
       }
       prevStatus.current = new Map(list.map((s) => [s.id, s.status]));
+      // Unchanged poll result: keep the same array so the page (and every layout-animated card) does not re-render.
+      const sig = JSON.stringify(list);
+      if (sig === lastSig.current) return;
+      lastSig.current = sig;
       setSessions(list);
     },
     [toast],
@@ -151,44 +161,77 @@ export default function Today({ devMode }: { devMode: boolean }) {
   const stopPolling = useCallback(() => {
     if (timer.current) clearTimeout(timer.current);
     timer.current = null;
+    pausedTick.current = false;
     setPolling(false);
   }, []);
 
-  const scheduleTick = useCallback(() => {
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(async () => {
-      timer.current = null;
+  const runTick = useCallback(async (): Promise<void> => {
+    if (!mounted.current) return;
+    pollCount.current += 1;
+    let list: SessionSummary[] | null = null;
+    try {
+      list = await fetchAll();
       if (!mounted.current) return;
-      pollCount.current += 1;
-      let list: SessionSummary[] | null = null;
-      try {
-        list = await fetchAll();
-        if (!mounted.current) return;
-        apply(list);
-        setPollError(null);
-        setLoad({ kind: "ready" });
-      } catch (err) {
-        if (!mounted.current) return;
-        setPollError(err);
-      }
-      const keepGoing = list === null || hasActive(list);
-      if (keepGoing && pollCount.current < POLL_MAX) {
-        scheduleTick();
-      } else {
-        setPolling(false);
-        if (keepGoing) setPollExhausted(true);
-      }
-    }, POLL_INTERVAL_MS);
+      apply(list);
+      pollErrors.current = 0;
+      lastList.current = list;
+      setPollError(null);
+      setLoad(READY);
+    } catch (err) {
+      if (!mounted.current) return;
+      pollErrors.current += 1;
+      setPollError(err);
+    }
+    const keepGoing = list === null || hasActive(list);
+    if (keepGoing && pollCount.current < POLL_MAX) {
+      scheduleTickRef.current(nextPollDelay(list ?? lastList.current, pollErrors.current));
+    } else {
+      setPolling(false);
+      if (keepGoing) setPollExhausted(true);
+    }
   }, [fetchAll, apply]);
+
+  const scheduleTickRef = useRef<(delay: number) => void>(() => undefined);
+  const scheduleTick = useCallback(
+    (delay: number) => {
+      if (timer.current) clearTimeout(timer.current);
+      timer.current = setTimeout(() => {
+        timer.current = null;
+        if (!mounted.current) return;
+        // Hidden tab: don't spend requests (or Worker CPU); resume when it is visible again.
+        if (document.visibilityState === "hidden") {
+          pausedTick.current = true;
+          return;
+        }
+        void runTick();
+      }, delay);
+    },
+    [runTick],
+  );
+  scheduleTickRef.current = scheduleTick;
+
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState === "visible" && pausedTick.current && mounted.current) {
+        pausedTick.current = false;
+        void runTick();
+      }
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [runTick]);
 
   /** Starts a fresh bounded polling run if any session is still moving. */
   const maybeStartPolling = useCallback(
     (list: SessionSummary[], force = false) => {
       if (force || hasActive(list)) {
         pollCount.current = 0;
+        pollErrors.current = 0;
+        pausedTick.current = false;
+        lastList.current = list;
         setPollExhausted(false);
         setPolling(true);
-        scheduleTick();
+        scheduleTick(force ? POLL_FAST_MS : nextPollDelay(list, 0));
       } else {
         stopPolling();
       }
@@ -202,7 +245,7 @@ export default function Today({ devMode }: { devMode: boolean }) {
       const list = await fetchAll();
       if (!mounted.current) return;
       apply(list);
-      setLoad({ kind: "ready" });
+      setLoad(READY);
       setPollError(null);
       maybeStartPolling(list);
     } catch (err) {
@@ -225,6 +268,17 @@ export default function Today({ devMode }: { devMode: boolean }) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // The server came back after an outage (ServerBanner): reload if the first load had failed.
+  const loadRef = useRef(load);
+  loadRef.current = load;
+  useEffect(() => {
+    const onRecovered = () => {
+      if (loadRef.current.kind === "error") void refresh();
+    };
+    window.addEventListener(SERVER_RECOVERED_EVENT, onRecovered);
+    return () => window.removeEventListener(SERVER_RECOVERED_EVENT, onRecovered);
+  }, [refresh]);
 
   async function onSeed() {
     setSeeding(true);
@@ -251,7 +305,7 @@ export default function Today({ devMode }: { devMode: boolean }) {
       const list = await fetchAll().catch(() => null);
       if (list && mounted.current) {
         apply(list);
-        setLoad({ kind: "ready" });
+        setLoad(READY);
       }
       // Sync is asynchronous (202): poll so new work becomes visible.
       maybeStartPolling(list ?? sessions, true);
@@ -500,7 +554,8 @@ function Stat({
   );
 }
 
-function SessionCard({ s, burst }: { s: SessionSummary; burst: number }) {
+/** Memoized: an unrelated state change on Today (sync button, poll chip) does not re-render every card. */
+const SessionCard = memo(function SessionCard({ s, burst }: { s: SessionSummary; burst: number }) {
   const reduce = useReducedMotion();
   const estimate = isEstimate(s);
   const href = `#/sessions/${encodeURIComponent(s.id)}`;
@@ -577,4 +632,4 @@ function SessionCard({ s, burst }: { s: SessionSummary; burst: number }) {
       </Card>
     </motion.li>
   );
-}
+});

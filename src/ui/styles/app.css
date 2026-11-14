@@ -47,15 +47,15 @@ main:focus-visible { box-shadow: none; }
   overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
 }
 
-/* ---------- aurora background (GPU-cheap: transforms + opacity only) ---------- */
+/* ---------- aurora background ----------
+   Static on purpose. It used to be three 60vmax blobs with filter: blur(80px) drifting forever,
+   which forced the compositor to repaint/re-blur a full-screen layer every frame and, through
+   the translucent cards, everything stacked on top of it. The radial gradients are already soft. */
 .aurora { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; contain: strict; }
-.aurora-blob {
-  position: absolute; width: 60vmax; height: 60vmax; border-radius: 50%;
-  filter: blur(80px); opacity: 1; will-change: transform;
-}
-.aurora-blob.b1 { background: radial-gradient(circle at center, var(--aurora-1), transparent 62%); top: -28vmax; left: -12vmax; animation: aurora-a 26s ease-in-out infinite alternate; }
-.aurora-blob.b2 { background: radial-gradient(circle at center, var(--aurora-2), transparent 62%); top: -18vmax; right: -24vmax; animation: aurora-b 32s ease-in-out infinite alternate; }
-.aurora-blob.b3 { background: radial-gradient(circle at center, var(--aurora-3), transparent 62%); bottom: -36vmax; left: 20vmax; animation: aurora-c 38s ease-in-out infinite alternate; }
+.aurora-blob { position: absolute; width: 70vmax; height: 70vmax; border-radius: 50%; }
+.aurora-blob.b1 { background: radial-gradient(circle at center, var(--aurora-1), transparent 68%); top: -32vmax; left: -14vmax; }
+.aurora-blob.b2 { background: radial-gradient(circle at center, var(--aurora-2), transparent 68%); top: -22vmax; right: -28vmax; }
+.aurora-blob.b3 { background: radial-gradient(circle at center, var(--aurora-3), transparent 68%); bottom: -40vmax; left: 18vmax; }
 .aurora-grid {
   position: absolute; inset: 0;
   background-image: linear-gradient(var(--grid-line) 1px, transparent 1px), linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
@@ -63,13 +63,9 @@ main:focus-visible { box-shadow: none; }
   mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000 30%, transparent 75%);
   -webkit-mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000 30%, transparent 75%);
 }
-@keyframes aurora-a { from { transform: translate3d(0, 0, 0) scale(1); } to { transform: translate3d(14vmax, 8vmax, 0) scale(1.15); } }
-@keyframes aurora-b { from { transform: translate3d(0, 0, 0) scale(1.1); } to { transform: translate3d(-16vmax, 10vmax, 0) scale(0.95); } }
-@keyframes aurora-c { from { transform: translate3d(0, 0, 0) scale(1); } to { transform: translate3d(-10vmax, -12vmax, 0) scale(1.2); } }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; scroll-behavior: auto !important; }
-  .aurora-blob { animation: none !important; }
 }
 
 /* ---------- layout utilities ---------- */

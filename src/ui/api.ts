@@ -89,7 +89,34 @@ export class ApiClientError extends Error {
 
 type Method = "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
 
-async function request<T>(method: Method, path: string, body?: unknown): Promise<{ status: number; data: T }> {
+/** Fired on window when a call fails with a network error or 5xx (shell/ServerBanner.tsx listens). */
+export const SERVER_TROUBLE_EVENT = "vexo:server-trouble";
+/** Fired on window when /api/health answers again after SERVER_TROUBLE_EVENT. Pages may refetch. */
+export const SERVER_RECOVERED_EVENT = "vexo:server-recovered";
+
+function reportTrouble(): void {
+  try {
+    window.dispatchEvent(new Event(SERVER_TROUBLE_EVENT));
+  } catch {
+    /* not in a browser (tests) */
+  }
+}
+
+async function request<T>(
+  method: Method,
+  path: string,
+  body?: unknown,
+  opts?: { silent?: boolean },
+): Promise<{ status: number; data: T }> {
+  try {
+    return await doRequest<T>(method, path, body);
+  } catch (err) {
+    if (!opts?.silent && err instanceof ApiClientError && (err.code === "NETWORK" || err.status >= 500)) reportTrouble();
+    throw err;
+  }
+}
+
+async function doRequest<T>(method: Method, path: string, body?: unknown): Promise<{ status: number; data: T }> {
   let res: Response;
   try {
     res = await fetch(path, {
@@ -139,7 +166,8 @@ const enc = encodeURIComponent;
 
 export const api = {
   me: () => dataOf<MeResponse>("GET", "/api/me"),
-  health: () => dataOf<HealthResponse>("GET", "/api/health"),
+  health: (opts?: { silent?: boolean }) =>
+    request<HealthResponse>("GET", "/api/health", undefined, opts).then((r) => r.data),
   listSessions: (cursor?: string) =>
     dataOf<ListSessionsResponse>("GET", "/api/sessions" + (cursor ? `?cursor=${enc(cursor)}` : "")),
   getSession: (id: string) => dataOf<SessionDetail>("GET", `/api/sessions/${enc(id)}`),
