@@ -17,6 +17,7 @@ npm run typecheck          # tsc --noEmit (keep clean)
 npm run build              # vite build + wrangler dry-run bundle
 npm run deploy             # typecheck + build + wrangler deploy --env production
 ```
+Phone over USB: `node scripts/band/usb-bridge.mjs --secret <from GlassCam>` (`.dev.vars` origins = 127.0.0.1). Deploy: `docs/deploy.md`.
 Dev login: `demo.provider@example.invalid` (an empty DB auto-seeds). Review → **Reset demo session (dev)** gives you a fresh draft.
 
 ## Map
@@ -34,7 +35,10 @@ Dev login: `demo.provider@example.invalid` (an empty DB auto-seeds). Review → 
 | Documents (one DocModel → HTML preview + PDF) | `src/documents/`, `src/services/documents/` |
 | Cloud (Drive/OneDrive, Gmail/Outlook drafts) | `src/connections/`, `src/integrations/cloud/`, `src/services/delivery/` |
 | Clients + rates, run history | `src/clients/`, `src/history/` |
-| Band visits (Vexo band → transcript → evidence) | `src/band/`, `src/api/visits.ts`, UI `#/visit`; protocol in `docs/band-bridge.md` |
+| Band visits (Vexo band → Deepgram via Worker proxy → evidence) | `src/band/`, `src/api/visits.ts`, UI `#/visit`; protocol `docs/band-bridge.md` |
+| Paired phones (one revocable key) + device API | `src/devices/`, `src/api/device*.ts`, Settings → Devices |
+| iPhone app (GlassCam, separate project, no git) | `~/Desktop/megent/GlassCam/GlassCam/Band/` — band BLE, visits, USB relay |
+| USB bridge (phone ↔ Mac over cable) | `scripts/band/usb-bridge.mjs`, `docs/usb-bridge.md` |
 | UI | `src/ui/` (`pages/`, `components/`, `design/`, `api.ts`) |
 | Tests | `src/**/*.test.ts`, `tests/integration/`, harnesses in `tests/e2e/` |
 
