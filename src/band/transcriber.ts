@@ -5,10 +5,12 @@
  * - deepgram: Deepgram live streaming (nova-3) with the Vexo kit's settings for
  *   the band's Opus packets, plus diarize=true so speakers are told apart.
  *   `mip_opt_out=true`: Deepgram does not keep the audio for model training.
- * - simulated: dev only. Emits a fixed SYNTHETIC visit script as audio arrives,
- *   labelled fixture. Lets the pretend band run the whole pipeline with no key.
+ * - simulated: dev only. Plays a SYNTHETIC script (the default visit, or a dev
+ *   scenario from fixtures/band) as audio arrives, labelled fixture. Lets the
+ *   pretend band run the whole pipeline with no key.
  */
 import type { Transcriber } from "../contracts";
+import type { ScenarioLine } from "../../fixtures/band/types";
 
 export interface FinalPiece {
   startSec: number;
@@ -187,51 +189,49 @@ export class TranscriberError extends Error {
 }
 
 // ------------------------------------------------------------------ simulated (dev)
-/** SYNTHETIC visit script (same lines as the canonical fixture transcript). */
-export const SIMULATED_SCRIPT: { speaker: string; text: string }[] = [
-  { speaker: "Provider", text: "Today we will practice planning the bus route to the library." },
-  { speaker: "Participant", text: "I found the route and the transfer stop on this map." },
-  { speaker: "Provider", text: "We also reviewed the weekly food budget together." },
-  { speaker: "Provider", text: "I will bring another route-planning worksheet next time." },
-  { speaker: "Provider", text: "We are finishing the practice for today." },
-];
-/** One scripted line per 3 seconds of audio. */
+/** SYNTHETIC visit script (same lines as the canonical fixture transcript), one line per 3 s of audio. */
+export const SIMULATED_SCRIPT: ScenarioLine[] = [
+  "Today we will practice planning the bus route to the library.",
+  "I found the route and the transfer stop on this map.",
+  "We also reviewed the weekly food budget together.",
+  "I will bring another route-planning worksheet next time.",
+  "We are finishing the practice for today.",
+].map((text, i) => ({ atSec: i * 3, durationSec: 3, speaker: i === 1 ? "Participant" : "Provider", text }));
+/** One default-script line per 3 seconds of audio. */
 export const SIMULATED_PACKETS_PER_LINE = 150;
+/** An interim partial for the next line every this many packets (0.5 s). */
+const INTERIM_EVERY = 25;
 
-export function openSimulated(events: TranscriberEvents): TranscriberSession {
+/**
+ * Plays a script: each line is emitted as a final once the received audio reaches
+ * `line.atSec` (packetIndex * 20 ms >= atSec), timed [atSec, atSec + durationSec].
+ * Interim partials of the next line show while approaching it. finish() emits every
+ * remaining line (a short recording still gets the whole script). Empty script: nothing.
+ */
+export function openSimulated(events: TranscriberEvents, script: ScenarioLine[] = SIMULATED_SCRIPT): TranscriberSession {
+  const lines = [...script].sort((a, b) => a.atSec - b.atSec);
   let emitted = 0;
-  let lastIndex = -1;
-  const emit = (startSec: number, endSec: number) => {
-    const line = SIMULATED_SCRIPT[emitted];
-    if (!line) return;
-    emitted++;
-    events.onFinal({ startSec, endSec, text: line.text, speaker: line.speaker });
+  const emitNext = () => {
+    const line = lines[emitted++]!;
+    events.onFinal({ startSec: line.atSec, endSec: line.atSec + line.durationSec, text: line.text, speaker: line.speaker });
   };
   return {
     kind: "simulated",
     feed(_opus, packetIndex) {
-      lastIndex = Math.max(lastIndex, packetIndex);
-      const due = Math.floor((packetIndex + 1) / SIMULATED_PACKETS_PER_LINE);
-      while (emitted < Math.min(due, SIMULATED_SCRIPT.length)) {
-        const start = emitted * SIMULATED_PACKETS_PER_LINE * PACKET_SECONDS;
-        emit(start, start + SIMULATED_PACKETS_PER_LINE * PACKET_SECONDS);
-      }
-      if (emitted < SIMULATED_SCRIPT.length && packetIndex % 25 === 0) {
-        const line = SIMULATED_SCRIPT[emitted]!;
-        const frac = ((packetIndex + 1) % SIMULATED_PACKETS_PER_LINE) / SIMULATED_PACKETS_PER_LINE;
+      const sec = packetIndex * PACKET_SECONDS;
+      while (emitted < lines.length && sec >= lines[emitted]!.atSec) emitNext();
+      if (emitted < lines.length && packetIndex % INTERIM_EVERY === 0) {
+        const line = lines[emitted]!;
+        const from = emitted > 0 ? lines[emitted - 1]!.atSec : 0;
+        const span = line.atSec - from;
+        const frac = span > 0 ? Math.min(1, Math.max(0, (sec - from) / span)) : 1;
         const words = line.text.split(" ");
         events.onInterim(words.slice(0, Math.max(1, Math.ceil(words.length * frac))).join(" "));
       }
     },
     keepAlive() {},
     async finish() {
-      // A short recording still gets the whole script, spread over the audio received.
-      const remaining = SIMULATED_SCRIPT.length - emitted;
-      if (remaining <= 0) return;
-      const doneSec = emitted * SIMULATED_PACKETS_PER_LINE * PACKET_SECONDS;
-      const endSec = Math.max(doneSec + remaining, (lastIndex + 1) * PACKET_SECONDS);
-      const step = (endSec - doneSec) / remaining;
-      for (let i = 0; i < remaining; i++) emit(doneSec + i * step, doneSec + (i + 1) * step);
+      while (emitted < lines.length) emitNext();
     },
     close() {},
   };

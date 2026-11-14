@@ -29,6 +29,9 @@ import { clientKnownTerms } from "./clients";
 import { finalizeDirect } from "./services/approval/amend";
 import { createVisitStore } from "./band/store";
 import { BandEvidenceSource, VisitRoutingEvidenceSource } from "./band/evidence";
+import { getScenarioLookup, loadScenarioLookup } from "./band/scenarios-registry";
+import { withScenarioExtraction } from "./band/scenario-extractor";
+import type { Repository } from "./db/repository";
 
 export { SessionWorkflow } from "./workflow";
 
@@ -63,7 +66,39 @@ function jobDeps(env: Env): JobDeps {
   };
 }
 
+/**
+ * DEV ONLY: synthetic band scenarios (fixtures/band) for simulated visits. Loaded lazily
+ * and never registered when deployed, so production never plays a scenario.
+ */
+function ensureDevScenarios(env: Env): void {
+  if (env.RUNTIME_MODE === "deployed") return;
+  void loadScenarioLookup(async () => {
+    try {
+      const mod = await import("../fixtures/band/scenarios");
+      return (id: string) => {
+        const s = mod.getBandScenario(id);
+        return s ? { script: s.script, extraction: s.extraction } : null;
+      };
+    } catch (err) {
+      console.log(JSON.stringify({ level: "warn", event: "dev.scenarios_unavailable", errorName: err instanceof Error ? err.name : "unknown" }));
+      return null;
+    }
+  });
+}
+
+/** DEV ONLY: demo seed plus the synthetic band-scenario clients (fixtures/band/seed.ts). */
+async function seedDev(repo: Repository): Promise<void> {
+  await seedDemoData(repo);
+  try {
+    const mod = await import("../fixtures/band/seed");
+    await mod.seedBandScenarios(repo);
+  } catch (err) {
+    console.log(JSON.stringify({ level: "warn", event: "dev.scenario_seed_failed", errorName: err instanceof Error ? err.name : "unknown" }));
+  }
+}
+
 setWorkflowDepsFactory((env: Env) => {
+  ensureDevScenarios(env);
   const repo = createRepository(env.DB);
   return {
   repo,
@@ -75,11 +110,16 @@ setWorkflowDepsFactory((env: Env) => {
     createEvidenceSource(env),
   ),
   // Each provider's own AI settings (vendor, model, privacy toggles); PII scrubbing runs before any call.
-  extractor: createExtractor(env, {
-    resolveSettings: async (providerId: string) => (await repo.getAiSettings(providerId)) ?? defaultAiSettings(env),
-    // Client names on file are always scrubbed before inference.
-    resolveKnownTerms: async (appt) => clientKnownTerms(await repo.getClient(appt.providerId, appt.clientRef)),
-  }),
+  // Fixture mode only: a band visit playing a dev scenario uses that scenario's extraction (still validated).
+  extractor: withScenarioExtraction(
+    createExtractor(env, {
+      resolveSettings: async (providerId: string) => (await repo.getAiSettings(providerId)) ?? defaultAiSettings(env),
+      // Client names on file are always scrubbed before inference.
+      resolveKnownTerms: async (appt) => clientKnownTerms(await repo.getClient(appt.providerId, appt.clientRef)),
+    }),
+    createVisitStore(env.DB),
+    getScenarioLookup,
+  ),
   // Run history ("see the agents working") + per-client hourly rate frozen into drafts.
   recorder: createRunRecorder(repo, clock),
   resolveClient: (appt) => repo.getClient(appt.providerId, appt.clientRef),
@@ -102,7 +142,7 @@ function apiDeps(env: Env): ApiDeps {
     discover: (opts) => discoverSessions(jobs, opts),
     dispatch: () => dispatchPendingDeliveries(jobs),
     notifyApproval: (approval) => notifyApproval(jobs, approval),
-    seed: env.AUTH_MODE === "dev" && env.RUNTIME_MODE !== "deployed" ? () => seedDemoData(jobs.repo) : undefined,
+    seed: env.AUTH_MODE === "dev" && env.RUNTIME_MODE !== "deployed" ? () => seedDev(jobs.repo) : undefined,
     visits: {
       store: createVisitStore(env.DB),
       enqueueAppointment: (appt) => enqueueAppointment(jobs, appt),
@@ -112,6 +152,7 @@ function apiDeps(env: Env): ApiDeps {
 
 export default {
   async fetch(request, env, ctx): Promise<Response> {
+    ensureDevScenarios(env);
     const url = new URL(request.url);
     if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/auth/")) {
       return createApi(apiDeps(env)).fetch(request, env, ctx);

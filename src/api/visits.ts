@@ -22,6 +22,7 @@ import {
   type StartVisitResponse,
   type StopVisitResponse,
   type Transcriber,
+  type Visit,
   type VisitDetail,
 } from "../contracts";
 import { apiError, log, requireActor } from "../security";
@@ -29,6 +30,7 @@ import { CaptureSession } from "../band/capture";
 import type { VisitStore } from "../band/store";
 import { signStreamToken, verifyStreamToken } from "../band/token";
 import { openDeepgram, openSimulated, type TranscriberEvents, type TranscriberSession } from "../band/transcriber";
+import { getScenarioLookup, scenarioLookupReady } from "../band/scenarios-registry";
 import type { ApiDeps, AppBindings } from "./deps";
 import { ok } from "./respond";
 
@@ -40,7 +42,7 @@ export interface VisitDeps {
   /** Ensure + enqueue the session for an appointment (jobs.enqueueAppointment). */
   enqueueAppointment: (appt: Appointment) => Promise<{ sessionId: string }>;
   /** Override for tests. */
-  openTranscriber?: (kind: Transcriber, events: TranscriberEvents) => Promise<TranscriberSession>;
+  openTranscriber?: (kind: Transcriber, events: TranscriberEvents, visit: Visit) => Promise<TranscriberSession>;
 }
 
 export function captureStatus(env: ApiDeps["env"]): CaptureStatus {
@@ -52,9 +54,18 @@ export function captureStatus(env: ApiDeps["env"]): CaptureStatus {
 }
 
 function defaultOpen(deps: ApiDeps) {
-  return (kind: Transcriber, events: TranscriberEvents): Promise<TranscriberSession> => {
+  return (kind: Transcriber, events: TranscriberEvents, visit: Visit): Promise<TranscriberSession> => {
     if (kind === "simulated") {
       if (deps.env.RUNTIME_MODE === "deployed") return Promise.reject(new Error("simulated transcriber is dev only"));
+      if (visit.scenario) {
+        // Dev scenario: play its synthetic script. Unknown id (or no lookup registered) fails loudly.
+        const id = visit.scenario;
+        return scenarioLookupReady().then(() => {
+          const scenario = getScenarioLookup()?.(id);
+          if (!scenario) throw new Error(`Unknown scenario "${id}"`);
+          return openSimulated(events, scenario.script);
+        });
+      }
       return Promise.resolve(openSimulated(events));
     }
     const key = deps.env.DEEPGRAM_API_KEY;
@@ -95,6 +106,14 @@ export function visitsRoutes(deps: ApiDeps): Hono<AppBindings> {
 
     if (body.data.scenario && (status.transcriber !== "simulated" || deps.env.RUNTIME_MODE === "deployed")) {
       return apiError(c, 400, "SCENARIO_DEV_ONLY", "Synthetic scenarios only run with the simulated transcriber in local dev.", false);
+    }
+    if (body.data.scenario) {
+      await scenarioLookupReady();
+      const lookup = getScenarioLookup();
+      // No lookup registered (e.g. tests without fixtures) → let the stream open decide.
+      if (lookup && !lookup(body.data.scenario)) {
+        return apiError(c, 400, "UNKNOWN_SCENARIO", `Unknown scenario "${body.data.scenario}".`, false);
+      }
     }
     const template = await v.store.latestAppointmentForClient(actor.providerId, body.data.clientRef);
     if (!template) {
@@ -220,7 +239,7 @@ export function visitStreamRoutes(deps: ApiDeps): Hono<AppBindings> {
     const session = new CaptureSession({
       visit,
       store: v.store,
-      openTranscriber: (events) => open(visit.transcriber, events),
+      openTranscriber: (events) => open(visit.transcriber, events, visit),
       send,
       now: () => deps.clock.now(),
       defer,
