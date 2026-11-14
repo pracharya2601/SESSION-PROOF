@@ -1,0 +1,4 @@
+# Copy to .dev.vars for local development. Synthetic/dev values only.
+SESSION_SECRET=dev-only-session-secret-change-me-0123456789
+TOKEN_ENCRYPTION_KEY=ZGV2LW9ubHktMzItYnl0ZS1lbmNyeXB0aW9uLWtleSE=
+# AI_API_KEY=sk-ant-...   (only needed when EXTRACTION_MODE=live)
