@@ -1,6 +1,6 @@
-# v2 setup: cloud connections, AI providers, privacy
+# Integrations: cloud connections, AI providers, privacy
 
-This guide covers what v2 needs beyond the v1 runbook (`docs/runbook.md`):
+This guide covers what the integrations need beyond the runbook (`docs/runbook.md`):
 
 - OAuth clients for **Google** (Drive and Gmail) and **Microsoft** (OneDrive and Outlook)
 - API keys for the four inference providers

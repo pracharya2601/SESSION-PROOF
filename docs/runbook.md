@@ -9,7 +9,7 @@ One Cloudflare Worker (Hono API + cron + queue consumer + `SessionWorkflow`), on
 | `DB` | D1 | `vexo-field-assistant` (migrations in `migrations/`) |
 | `SESSION_QUEUE` | Queue producer + consumer | `vexo-session-processing` |
 | `SESSION_WORKFLOW` | Workflow | `vexo-session-workflow`, class `SessionWorkflow` |
-| `ASSETS` | Static assets | `dist/client`, SPA fallback, `run_worker_first: ["/api/*", "/auth/*"]` |
+| `ASSETS` | Static assets | `dist/client`, SPA fallback, `run_worker_first: ["/api/*", "/auth/*", "/__scheduled"]` |
 
 Vars: `EVIDENCE_MODE`, `EXTRACTION_MODE` (`fixture`/`live`), `AI_MODEL`, optional `AI_GATEWAY_URL`, `AUTH_MODE` (`dev`/`access`), `APP_ORIGIN`, `RUNTIME_MODE` (`local`/`deployed`), optional `FIXTURE_VARIANT`.
 Secrets: `SESSION_SECRET`, `TOKEN_ENCRYPTION_KEY`, `AI_API_KEY` (only for live extraction).
@@ -35,7 +35,7 @@ npm run dev                # vite build -> dist/client, then wrangler dev on htt
 - UI hot reload: run `npm run dev` in one terminal and `npm run dev:ui` (vite on :5173, which proxies `/api` and `/auth` to :8787) in another.
 - Cron locally: `npx wrangler dev --port 8787 --test-scheduled`, then `curl "http://localhost:8787/__scheduled?cron=*/5+*+*+*+*"` (prints "Ran scheduled event"). `/__scheduled` is listed in `assets.run_worker_first`, otherwise the SPA fallback swallows it. `/cdn-cgi/handler/scheduled` returns 500 under wrangler 4.86 with assets — use `/__scheduled`.
 - Sync schedule: the cron is a fixed 5-minute heartbeat. Each provider sets on/off, interval (5 min – 1 day) and lookback days in the UI ("Automatic sync" on the Today page) or via `GET/PUT /api/settings/sync`; stored in `provider_sync_settings` (migration 0002). The heartbeat runs discovery only for providers who are due; delivery recovery runs every heartbeat regardless. Manual "Sync now" is scoped to the signed-in provider.
-- Reset local state: stop dev, delete `.wrangler/state`, then migrate and seed again.
+- Reset the demo session: Review page → **Reset demo session (dev)** (or `POST /api/dev/reset-session/:id`). Full reset: stop dev, delete `.wrangler/state`, then migrate and seed again.
 
 | Script | Does |
 |---|---|
@@ -71,7 +71,7 @@ bash scripts/platform/provision.sh           # prints the commands (dry run)
 bash scripts/platform/provision.sh --apply   # creates the D1 + Queue and prints database_id
 ```
 
-Paste the printed `database_id` into `wrangler.jsonc`. For the deployed environment, set `APP_ORIGIN` to the real origin, `RUNTIME_MODE` to `"deployed"`, and `AUTH_MODE` to `"access"` (behind Cloudflare Access). Then run:
+Paste the printed `database_id` into `env.production` in `wrangler.jsonc` (it is a placeholder today) and set its `APP_ORIGIN` to the real origin. `env.production` already sets `AUTH_MODE: "access"`, `RUNTIME_MODE: "deployed"` and `workers_dev: false`; put the route behind a Cloudflare Access application. Then run (add `--env production` to the secret commands):
 
 ```sh
 npm run db:migrate:remote

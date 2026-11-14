@@ -21,14 +21,14 @@ progress transitions to fit the timing; if a step fails, say so and downgrade th
 ## 2. Pre-demo preparation (§18.1)
 
 ```sh
-rm -rf .wrangler/state                 # isolated local demo data only — the session can be approved once
+rm -rf .wrangler/state                 # optional full wipe; or use Review → "Reset demo session (dev)"
 npm run db:migrate:local
 cp -n .dev.vars.example .dev.vars      # synthetic SESSION_SECRET / TOKEN_ENCRYPTION_KEY
 npm run dev                            # builds UI, serves http://localhost:8787
 node scripts/e2e/demo.mjs              # optional dry-run on a SEPARATE fresh state; see §5
 ```
 
-Known prerequisites / limitations (see docs/test-report.md):
+Known prerequisites / limitations (see docs/archive/test-report-v1.md):
 
 - **Bootstrap**: on an empty D1, `POST /auth/dev-login` (dev auth, local runtime, loopback only) seeds the
   synthetic data once and then logs in, so the UI login works on a fresh database (QA-02a, verified).
@@ -61,7 +61,7 @@ with the same request returns the same approval (no duplicate final record).
 
 ## 4. Completion evidence to capture (§18.3)
 
-Build/commit id · `docs/test-report.md` · URL (`http://localhost:8787`) · evidence/extraction/runtime modes ·
+Build/commit id · `npm test` output · URL (`http://localhost:8787`) · evidence/extraction/runtime modes ·
 completed session id (`sess_` + 24 hex of sha256(provider ⧺ occurrence)) · approved revision 2 · confirmed
 90 min · USD 112.50 · export path `/api/sessions/<id>/export?format=json|html` · known limitations above ·
 unresolved gates: QA-31/32/33 (live OAuth/MCP/model), QA-34/36 (deployed smoke, real cron).
