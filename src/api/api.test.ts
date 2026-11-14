@@ -81,6 +81,7 @@ function fakeRepo(): Repository {
   };
   const repo: Partial<Repository> = {
     findProviderByIdentity: async (identity) => providers.get(identity) ?? null,
+    getSyncSettings: async () => ({ settings: { enabled: true, intervalMinutes: 15, lookbackDays: 7 }, lastRunAt: null }),
     getAppointment: async (id) => appointments.get(id) ?? null,
     getSessionForProvider: async (pid, sid) => {
       const s = sessions.get(sid);

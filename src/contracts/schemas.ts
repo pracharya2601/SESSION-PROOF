@@ -452,3 +452,34 @@ export const DispatchSummary = z.object({
   exhausted: z.number().int(),
 });
 export type DispatchSummary = z.infer<typeof DispatchSummary>;
+
+// ---------------------------------------------------------------- sync schedule
+/**
+ * Provider-controlled automatic sync schedule. Cloudflare cron triggers are
+ * fixed at deploy time, so the Worker runs a fixed heartbeat (every 5 min) and
+ * runs discovery for a provider only when their own interval is due.
+ */
+export const SYNC_HEARTBEAT_MINUTES = 5;
+export const SYNC_INTERVAL_OPTIONS = [5, 15, 30, 60, 120, 240, 720, 1440] as const;
+export const SyncSettings = z
+  .object({
+    enabled: z.boolean(),
+    intervalMinutes: z
+      .number()
+      .int()
+      .refine((n) => (SYNC_INTERVAL_OPTIONS as readonly number[]).includes(n), {
+        message: `intervalMinutes must be one of ${SYNC_INTERVAL_OPTIONS.join(", ")}`,
+      }),
+    lookbackDays: z.number().int().min(1).max(30),
+  })
+  .strict();
+export type SyncSettings = z.infer<typeof SyncSettings>;
+export const DEFAULT_SYNC_SETTINGS: SyncSettings = { enabled: true, intervalMinutes: 15, lookbackDays: 7 };
+
+export const SyncSettingsView = z.object({
+  settings: SyncSettings,
+  lastRunAt: Instant.nullable(),
+  nextRunAt: Instant.nullable(),
+  heartbeatMinutes: z.number().int(),
+});
+export type SyncSettingsView = z.infer<typeof SyncSettingsView>;

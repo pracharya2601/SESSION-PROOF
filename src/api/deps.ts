@@ -14,7 +14,8 @@ export interface ApiDeps {
   clock: Clock;
   env: Env;
   assemble: AssembleBundleFn;
-  discover: () => Promise<DiscoverySummary>;
+  /** Discovery for one provider (manual sync is always scoped to the actor). */
+  discover: (opts?: { providerId: string; lookbackMinutes?: number }) => Promise<DiscoverySummary>;
   dispatch: () => Promise<DispatchSummary>;
   notifyApproval: (approval: ApprovalRecord) => Promise<void>;
   /** Dev/operator only. */

@@ -17,6 +17,7 @@ import {
   dispatchPendingDeliveries,
   handleQueueBatch,
   notifyApproval,
+  runScheduledSync,
   type JobDeps,
 } from "./jobs";
 import { setWorkflowDepsFactory } from "./workflow";
@@ -53,7 +54,7 @@ function apiDeps(env: Env): ApiDeps {
     clock,
     env,
     assemble: assembleBundle,
-    discover: () => discoverSessions(jobs),
+    discover: (opts) => discoverSessions(jobs, opts),
     dispatch: () => dispatchPendingDeliveries(jobs),
     notifyApproval: (approval) => notifyApproval(jobs, approval),
     seed: env.AUTH_MODE === "dev" && env.RUNTIME_MODE !== "deployed" ? () => seedDemoData(jobs.repo) : undefined,
@@ -69,14 +70,19 @@ export default {
     return env.ASSETS.fetch(request);
   },
 
-  async scheduled(_controller, env, ctx): Promise<void> {
+  async scheduled(controller, env): Promise<void> {
     const jobs = jobDeps(env);
-    ctx.waitUntil(
-      (async () => {
-        await discoverSessions(jobs);
-        await dispatchPendingDeliveries(jobs);
-      })(),
-    );
+    console.log(JSON.stringify({ level: "info", event: "heartbeat.start", cron: controller.cron }));
+    try {
+      // Heartbeat: discovery only for providers whose own schedule is due…
+      const sync = await runScheduledSync(jobs);
+      // …but delivery recovery always runs, independent of user settings.
+      const dispatch = await dispatchPendingDeliveries(jobs);
+      console.log(JSON.stringify({ level: "info", event: "heartbeat.done", providersRun: sync.providersRun, enqueued: sync.enqueued, dispatched: dispatch.succeeded }));
+    } catch (err) {
+      console.log(JSON.stringify({ level: "error", event: "heartbeat.failed", error: err instanceof Error ? `${err.name}: ${err.message}` : "unknown" }));
+      throw err;
+    }
   },
 
   async queue(batch, env): Promise<void> {

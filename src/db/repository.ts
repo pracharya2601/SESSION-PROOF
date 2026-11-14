@@ -15,6 +15,7 @@ import type {
   SessionRecord,
   SessionStatus,
   SessionSummary,
+  SyncSettings,
 } from "../contracts";
 
 export type PendingOperation = "process_session" | "approval_notification";
@@ -53,8 +54,19 @@ export interface Repository {
   // ---- appointments (seeded; no calendar OAuth)
   upsertAppointment(appointment: Appointment): Promise<void>;
   getAppointment(appointmentId: string): Promise<Appointment | null>;
-  /** Completed (endAt <= now), not canceled, endAt >= now - lookbackMinutes. */
-  listDiscoverableAppointments(now: Date, lookbackMinutes: number, limit: number): Promise<Appointment[]>;
+  /**
+   * Completed (endAt <= now), not canceled, endAt >= now - lookbackMinutes.
+   * When providerId is given, only that provider's appointments.
+   */
+  listDiscoverableAppointments(now: Date, lookbackMinutes: number, limit: number, providerId?: string): Promise<Appointment[]>;
+
+  // ---- provider sync schedule (user-controlled)
+  /** Stored settings, or DEFAULT_SYNC_SETTINGS when the provider has none. */
+  getSyncSettings(providerId: string): Promise<{ settings: SyncSettings; lastRunAt: string | null }>;
+  saveSyncSettings(providerId: string, settings: SyncSettings, now: Date): Promise<void>;
+  /** Providers with auto-sync enabled whose lastRunAt + interval <= now (never-run = due). */
+  listProvidersDueForSync(now: Date, limit: number): Promise<{ providerId: string; settings: SyncSettings }[]>;
+  markSyncRun(providerId: string, now: Date): Promise<void>;
   /** Same-provider appointments overlapping [from, to) — candidates for ambiguity. */
   listProviderAppointmentsOverlapping(providerId: string, from: string, to: string): Promise<Appointment[]>;
 

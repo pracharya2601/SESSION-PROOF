@@ -12,6 +12,8 @@ import type {
   ReviewRequest,
   SessionBundle,
   SessionDetail,
+  SyncSettings,
+  SyncSettingsView,
 } from "../contracts";
 
 /** GET /api/me — shape kept loose; the server derives identity. */
@@ -45,7 +47,7 @@ export class ApiClientError extends Error {
   }
 }
 
-type Method = "GET" | "POST" | "PATCH";
+type Method = "GET" | "POST" | "PATCH" | "PUT";
 
 async function request<T>(method: Method, path: string, body?: unknown): Promise<{ status: number; data: T }> {
   let res: Response;
@@ -102,6 +104,8 @@ export const api = {
     dataOf<ListSessionsResponse>("GET", "/api/sessions" + (cursor ? `?cursor=${enc(cursor)}` : "")),
   getSession: (id: string) => dataOf<SessionDetail>("GET", `/api/sessions/${enc(id)}`),
   sync: () => dataOf<SyncResponse>("POST", "/api/sync", {}),
+  getSyncSettings: () => dataOf<SyncSettingsView>("GET", "/api/settings/sync"),
+  saveSyncSettings: (settings: SyncSettings) => dataOf<SyncSettingsView>("PUT", "/api/settings/sync", settings),
   seed: () => dataOf<unknown>("POST", "/api/dev/seed", {}),
   devLogin: (identity: string) => dataOf<MeResponse>("POST", "/auth/dev-login", { identity }),
   logout: () => dataOf<unknown>("POST", "/auth/logout", {}),

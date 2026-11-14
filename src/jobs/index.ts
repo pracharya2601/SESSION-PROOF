@@ -72,10 +72,17 @@ function queueMessage(sessionId: string, processingRevision: number): QueuePaylo
 
 // ------------------------------------------------------------------ discovery
 /** Shared by cron and manual sync. Idempotent: repeated runs create no duplicates. */
-export async function discoverSessions(deps: JobDeps): Promise<DiscoverySummary> {
+export interface DiscoverOptions {
+  /** Restrict discovery to one provider (manual sync, scheduled per-provider runs). */
+  providerId?: string;
+  /** Overrides deps.lookbackMinutes (e.g. from the provider's sync settings). */
+  lookbackMinutes?: number;
+}
+
+export async function discoverSessions(deps: JobDeps, opts: DiscoverOptions = {}): Promise<DiscoverySummary> {
   const now = deps.clock.now();
-  const lookback = deps.lookbackMinutes ?? DEFAULT_LOOKBACK_MINUTES;
-  const appointments = await deps.repo.listDiscoverableAppointments(now, lookback, DISCOVERY_LIMIT);
+  const lookback = opts.lookbackMinutes ?? deps.lookbackMinutes ?? DEFAULT_LOOKBACK_MINUTES;
+  const appointments = await deps.repo.listDiscoverableAppointments(now, lookback, DISCOVERY_LIMIT, opts.providerId);
   const summary: DiscoverySummary = { examined: 0, created: 0, enqueued: 0, skipped: 0 };
 
   for (const appt of appointments) {
@@ -216,4 +223,35 @@ export async function handleQueueBatch(batch: MessageBatch<unknown>, deps: JobDe
       msg.retry();
     }
   }
+}
+
+
+/**
+ * Scheduled heartbeat entry point. Runs discovery only for providers whose
+ * own (user-controlled) sync interval is due, then records the run.
+ * Delivery recovery (dispatchPendingDeliveries) is NOT governed by these
+ * settings — the caller always runs it, so approvals still finalize even
+ * when a provider turns automatic sync off.
+ */
+export async function runScheduledSync(
+  deps: JobDeps,
+): Promise<DiscoverySummary & { providersRun: number }> {
+  const due = await deps.repo.listProvidersDueForSync(deps.clock.now(), 200);
+  const total = { examined: 0, created: 0, enqueued: 0, skipped: 0, providersRun: 0 };
+  for (const { providerId, settings } of due) {
+    try {
+      const s = await discoverSessions(deps, { providerId, lookbackMinutes: settings.lookbackDays * 24 * 60 });
+      total.examined += s.examined;
+      total.created += s.created;
+      total.enqueued += s.enqueued;
+      total.skipped += s.skipped;
+      total.providersRun++;
+      await deps.repo.markSyncRun(providerId, deps.clock.now());
+    } catch (err) {
+      // One provider's failure must not block the others; it stays due and retries next heartbeat.
+      log("scheduled_sync.provider_failed", { providerId, error: errKind(err) });
+    }
+  }
+  log("scheduled_sync.done", { ...total, due: due.length });
+  return total;
 }

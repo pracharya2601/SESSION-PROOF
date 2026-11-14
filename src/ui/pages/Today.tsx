@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { SessionSummary } from "../../contracts";
 import { api, ApiClientError } from "../api";
 import { ErrorNotice } from "../components/ErrorNotice";
+import { SyncSettingsPanel } from "../components/SyncSettingsPanel";
 import { ACTIVE_STATUSES, REASON_STATUSES, StatusChip } from "../components/StatusChip";
 import { formatCents, formatTimeRange } from "../components/format";
 
@@ -178,6 +179,8 @@ export default function Today({ devMode }: { devMode: boolean }) {
           </button>
         </div>
       </div>
+
+      <SyncSettingsPanel />
 
       <div aria-live="polite" className="stack-sm">
         {seedState.kind === "ok" && <div className="success-box">{seedState.message}</div>}

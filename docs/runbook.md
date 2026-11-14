@@ -33,7 +33,8 @@ npm run dev                # vite build -> dist/client, then wrangler dev on htt
 ```
 
 - UI hot reload: run `npm run dev` in one terminal and `npm run dev:ui` (vite on :5173, which proxies `/api` and `/auth` to :8787) in another.
-- Cron locally: `npx wrangler dev --port 8787 --test-scheduled`, then `curl "http://localhost:8787/__scheduled?cron=*/5+*+*+*+*"`.
+- Cron locally: `npx wrangler dev --port 8787 --test-scheduled`, then `curl "http://localhost:8787/__scheduled?cron=*/5+*+*+*+*"` (prints "Ran scheduled event"). `/__scheduled` is listed in `assets.run_worker_first`, otherwise the SPA fallback swallows it. `/cdn-cgi/handler/scheduled` returns 500 under wrangler 4.86 with assets — use `/__scheduled`.
+- Sync schedule: the cron is a fixed 5-minute heartbeat. Each provider sets on/off, interval (5 min – 1 day) and lookback days in the UI ("Automatic sync" on the Today page) or via `GET/PUT /api/settings/sync`; stored in `provider_sync_settings` (migration 0002). The heartbeat runs discovery only for providers who are due; delivery recovery runs every heartbeat regardless. Manual "Sync now" is scoped to the signed-in provider.
 - Reset local state: stop dev, delete `.wrangler/state`, then migrate and seed again.
 
 | Script | Does |

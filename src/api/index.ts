@@ -7,6 +7,7 @@ import { healthRoutes } from "./health";
 import { reviewRoutes } from "./review";
 import { sessionRoutes } from "./sessions";
 import { syncRoutes } from "./sync";
+import { settingsRoutes } from "./settings";
 
 export { ok } from "./respond";
 export { healthRoutes } from "./health";
@@ -32,6 +33,7 @@ export function createApi(deps: ApiDeps): Hono<AppBindings> {
 
   app.route("/", sessionRoutes(deps));
   app.route("/", syncRoutes(deps));
+  app.route("/", settingsRoutes(deps));
   app.route("/", devRoutes(deps));
   app.route("/", reviewRoutes(deps));
 

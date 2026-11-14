@@ -22,6 +22,8 @@ import {
   SessionStatus,
   SessionSummary,
   EvidenceItem,
+  SyncSettings,
+  DEFAULT_SYNC_SETTINGS,
 } from "../contracts";
 import type {
   ApprovalWrite,
@@ -82,6 +84,14 @@ function placeholders(n: number): string {
 
 function statusList(statuses: SessionStatus[]): SessionStatus[] {
   return [...new Set(statuses.map((s) => SessionStatus.parse(s)))];
+}
+
+function rowToSyncSettings(r: Row): SyncSettings {
+  return SyncSettings.parse({
+    enabled: Number(r.enabled) === 1,
+    intervalMinutes: Number(r.interval_minutes),
+    lookbackDays: Number(r.lookback_days),
+  });
 }
 
 function rowToAppointment(r: Row): Appointment {
@@ -315,17 +325,92 @@ export function createRepository(db: D1Database): Repository {
       return r ? rowToAppointment(r) : null;
     },
 
-    async listDiscoverableAppointments(now, lookbackMinutes, limit) {
+    async listDiscoverableAppointments(now, lookbackMinutes, limit, providerId) {
       const nowMs = now.getTime();
       const { results } = await db
         .prepare(
           `SELECT * FROM appointments
-           WHERE canceled = 0 AND end_ms <= ? AND end_ms >= ?
-           ORDER BY end_ms ASC, id ASC LIMIT ?`,
+           WHERE canceled = 0 AND end_ms <= ?1 AND end_ms >= ?2
+             AND (?4 IS NULL OR provider_id = ?4)
+           ORDER BY end_ms ASC, id ASC LIMIT ?3`,
         )
-        .bind(nowMs, nowMs - Math.max(0, lookbackMinutes) * 60_000, Math.max(0, Math.floor(limit)))
+        .bind(nowMs, nowMs - Math.max(0, lookbackMinutes) * 60_000, Math.max(0, Math.floor(limit)), providerId ?? null)
         .all<Row>();
       return results.map(rowToAppointment);
+    },
+
+    async getSyncSettings(providerId) {
+      const row = await db
+        .prepare(`SELECT * FROM provider_sync_settings WHERE provider_id = ?`)
+        .bind(providerId)
+        .first<Row>();
+      if (!row) return { settings: { ...DEFAULT_SYNC_SETTINGS }, lastRunAt: null };
+      return { settings: rowToSyncSettings(row), lastRunAt: (row.last_run_at as string | null) ?? null };
+    },
+
+    async saveSyncSettings(providerId, settings, now) {
+      const s = SyncSettings.parse(settings);
+      await db
+        .prepare(
+          `INSERT INTO provider_sync_settings (provider_id, enabled, interval_minutes, lookback_days, last_run_at, updated_at)
+           VALUES (?1, ?2, ?3, ?4, NULL, ?5)
+           ON CONFLICT(provider_id) DO UPDATE SET
+             enabled = excluded.enabled,
+             interval_minutes = excluded.interval_minutes,
+             lookback_days = excluded.lookback_days,
+             updated_at = excluded.updated_at`,
+        )
+        .bind(providerId, s.enabled ? 1 : 0, s.intervalMinutes, s.lookbackDays, now.toISOString())
+        .run();
+    },
+
+    async listProvidersDueForSync(now, limit) {
+      // Providers without a row use DEFAULT_SYNC_SETTINGS (enabled).
+      const { results } = await db
+        .prepare(
+          `SELECT p.id AS provider_id,
+                  COALESCE(s.enabled, ?1) AS enabled,
+                  COALESCE(s.interval_minutes, ?2) AS interval_minutes,
+                  COALESCE(s.lookback_days, ?3) AS lookback_days,
+                  s.last_run_at AS last_run_at
+           FROM providers p LEFT JOIN provider_sync_settings s ON s.provider_id = p.id
+           ORDER BY p.id LIMIT ?4`,
+        )
+        .bind(
+          DEFAULT_SYNC_SETTINGS.enabled ? 1 : 0,
+          DEFAULT_SYNC_SETTINGS.intervalMinutes,
+          DEFAULT_SYNC_SETTINGS.lookbackDays,
+          Math.max(0, Math.floor(limit)),
+        )
+        .all<Row>();
+      const nowMs = now.getTime();
+      return results
+        .map((r) => ({ providerId: r.provider_id as string, settings: rowToSyncSettings(r), lastRunAt: r.last_run_at as string | null }))
+        .filter((r) => {
+          if (!r.settings.enabled) return false;
+          if (!r.lastRunAt) return true;
+          // Small tolerance so a 5-minute interval isn't skipped by heartbeat jitter.
+          return Date.parse(r.lastRunAt) + r.settings.intervalMinutes * 60_000 - 30_000 <= nowMs;
+        })
+        .map(({ providerId, settings }) => ({ providerId, settings }));
+    },
+
+    async markSyncRun(providerId, now) {
+      const iso = now.toISOString();
+      await db
+        .prepare(
+          `INSERT INTO provider_sync_settings (provider_id, enabled, interval_minutes, lookback_days, last_run_at, updated_at)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?5)
+           ON CONFLICT(provider_id) DO UPDATE SET last_run_at = excluded.last_run_at`,
+        )
+        .bind(
+          providerId,
+          DEFAULT_SYNC_SETTINGS.enabled ? 1 : 0,
+          DEFAULT_SYNC_SETTINGS.intervalMinutes,
+          DEFAULT_SYNC_SETTINGS.lookbackDays,
+          iso,
+        )
+        .run();
     },
 
     async listProviderAppointmentsOverlapping(providerId, from, to) {
