@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion, useReducedMotion } from "framer-motion";
-import { Bluetooth, Check, Flashlight, Hand, Unplug, Usb, Watch, WandSparkles } from "lucide-react";
+import { Bluetooth, Check, Flashlight, Hand, Smartphone, Unplug, Usb, Watch, WandSparkles } from "lucide-react";
 import { Badge, Button, Card, Field, Input, cx, springy } from "../../design";
 import type { BandView, ConnectMethod } from "./useVisitRecorder";
 import { parseBandNumber } from "./protocol";
@@ -26,8 +26,17 @@ function writeStored(key: string, value: string) {
 export const hasBluetooth = () => typeof navigator !== "undefined" && "bluetooth" in navigator;
 export const hasSerial = () => typeof navigator !== "undefined" && "serial" in navigator;
 
+/** "phone": the iPhone app GlassCam connects to the band and streams; this page only hands off. */
+export type PanelMethod = ConnectMethod | "phone";
+
+/** Phone handoff selection reported to the page (null = another method is chosen). */
+export interface PhoneChoice {
+  number: number | null;
+  numberError: boolean;
+}
+
 interface MethodOption {
-  value: ConnectMethod;
+  value: PanelMethod;
   label: string;
   icon: typeof Bluetooth;
   available: boolean;
@@ -55,6 +64,13 @@ function methodOptions(): MethodOption[] {
       desc: serial ? "Plug the band in; pick “Vexo Open band”." : "Needs Chrome or Edge on a laptop (Web Serial).",
     },
     { value: "sim", label: "Pretend band", icon: WandSparkles, available: true, desc: "No hardware: plays a sample reading." },
+    {
+      value: "phone",
+      label: "Record on iPhone (GlassCam)",
+      icon: Smartphone,
+      available: true,
+      desc: "The GlassCam app connects to the band and streams. Scan a code to hand the visit over.",
+    },
   ];
 }
 
@@ -72,6 +88,7 @@ export function BandPanel({
   onConnect,
   onDisconnect,
   onFlash,
+  onPhone,
 }: {
   band: BandView;
   /** Microphone is on: the LED is locked solid blue, so Flash light is unavailable. */
@@ -81,12 +98,14 @@ export function BandPanel({
   onConnect: (number: number | null, method: ConnectMethod) => void;
   onDisconnect: () => void;
   onFlash: () => Promise<void>;
+  /** Called when "Record on iPhone" is chosen (with the band number) or left (null). */
+  onPhone?: (choice: PhoneChoice | null) => void;
 }) {
   const reduce = useReducedMotion();
   const options = methodOptions();
   const [numberText, setNumberText] = useState(() => readStored(NUMBER_KEY) ?? "");
-  const [method, setMethod] = useState<ConnectMethod>(() => {
-    const stored = readStored(METHOD_KEY) as ConnectMethod | null;
+  const [method, setMethod] = useState<PanelMethod>(() => {
+    const stored = readStored(METHOD_KEY) as PanelMethod | null;
     const ok = options.find((o) => o.value === stored && o.available);
     return ok?.value ?? options.find((o) => o.available)?.value ?? "sim";
   });
@@ -98,10 +117,15 @@ export function BandPanel({
   const canConnect = band.phase === "idle" && !numberError && !!chosen?.available;
   const connected = band.phase === "connected" || band.phase === "reconnecting";
   const badge = PHASE_BADGE[band.phase];
+  const phone = method === "phone";
+
+  useEffect(() => {
+    onPhone?.(phone ? { number, numberError: !!numberError } : null);
+  }, [onPhone, phone, number, numberError]);
 
   function connect() {
     // Called synchronously from the click: the Bluetooth/USB chooser needs the user gesture.
-    if (!canConnect) return;
+    if (!canConnect || method === "phone") return;
     if (number !== null) writeStored(NUMBER_KEY, String(number));
     writeStored(METHOD_KEY, method);
     onConnect(number, method);
@@ -139,7 +163,13 @@ export function BandPanel({
         <>
           <Field
             label="Band number"
-            hint={method === "sim" ? "Optional for the pretend band." : "Leave empty to choose from every band nearby."}
+            hint={
+              method === "sim"
+                ? "Optional for the pretend band."
+                : phone
+                  ? "Sent to GlassCam so it connects to this band."
+                  : "Leave empty to choose from every band nearby."
+            }
             error={numberError}
           >
             <Input
@@ -149,12 +179,12 @@ export function BandPanel({
               placeholder="e.g. 42"
               maxLength={3}
               value={numberText}
-              disabled={band.phase === "connecting"}
+              disabled={band.phase === "connecting" || locked}
               onChange={(e) => setNumberText(e.target.value.replace(/[^\d]/g, ""))}
             />
           </Field>
 
-          <fieldset className="u2-choice" disabled={band.phase === "connecting"}>
+          <fieldset className="u2-choice" disabled={band.phase === "connecting" || locked}>
             <legend className="ds-field-label">Connect with</legend>
             <div className="u2-choice-grid">
               {options.map((o) => {
@@ -173,7 +203,10 @@ export function BandPanel({
                       value={o.value}
                       checked={on}
                       disabled={!o.available}
-                      onChange={() => setMethod(o.value)}
+                      onChange={() => {
+                        setMethod(o.value);
+                        if (o.value === "phone") writeStored(METHOD_KEY, "phone");
+                      }}
                     />
                     <span className="rv-choice-ico" aria-hidden="true">
                       <Icon size={17} />
@@ -212,17 +245,27 @@ export function BandPanel({
             </p>
           )}
 
-          <div className="rv-actions">
-            <Button
-              variant="primary"
-              icon={<Bluetooth size={16} />}
-              loading={band.phase === "connecting"}
-              disabled={!canConnect}
-              onClick={connect}
-            >
-              {band.phase === "connecting" ? "Connecting…" : "Connect"}
-            </Button>
-          </div>
+          {phone ? (
+            <p className="rv-hint">
+              <Smartphone size={15} aria-hidden="true" />
+              <span>
+                <strong>Nothing to connect here.</strong> Confirm consent, then press <strong>Start on phone</strong> and scan
+                the code with the iPhone. GlassCam connects to the band and streams the visit.
+              </span>
+            </p>
+          ) : (
+            <div className="rv-actions">
+              <Button
+                variant="primary"
+                icon={<Bluetooth size={16} />}
+                loading={band.phase === "connecting"}
+                disabled={!canConnect}
+                onClick={connect}
+              >
+                {band.phase === "connecting" ? "Connecting…" : "Connect"}
+              </Button>
+            </div>
+          )}
         </>
       )}
 

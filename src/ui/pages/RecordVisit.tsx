@@ -3,7 +3,8 @@ import { AlertTriangle, ArrowRight, Mic, ShieldCheck, Square, UserRound } from "
 import type { CaptureStatus, ClientSummary } from "../../contracts";
 import { api } from "../api";
 import { Badge, Button, Card, Dialog, ErrorNotice, Field, PageHeader, Select, Skeleton, Spinner, useToast } from "../design";
-import { BandPanel } from "../components/visit/BandPanel";
+import { BandPanel, type PhoneChoice } from "../components/visit/BandPanel";
+import { PhoneHandoff } from "../components/visit/PhoneHandoff";
 import { LiveTranscript } from "../components/visit/LiveTranscript";
 import { VisitDetailView } from "../components/visit/VisitDetailView";
 import { formatElapsed } from "../components/visit/protocol";
@@ -59,6 +60,9 @@ function Recorder() {
   const [clientRef, setClientRef] = useState("");
   const [consent, setConsent] = useState(false);
   const [pendingNav, setPendingNav] = useState<string | null>(null);
+  // "Record on iPhone (GlassCam)": the phone records; this page hands off and follows the visit.
+  const [phone, setPhone] = useState<PhoneChoice | null>(null);
+  const [phoneActive, setPhoneActive] = useState(false);
   const bypassGuard = useRef(false);
   const ownHash = useRef(typeof window !== "undefined" ? window.location.hash || "#/visit" : "#/visit");
 
@@ -80,7 +84,7 @@ function Recorder() {
   useEffect(loadCapture, [loadCapture]);
   useEffect(loadClients, [loadClients]);
 
-  const busy = phase === "starting" || phase === "recording" || phase === "stopping";
+  const busy = phase === "starting" || phase === "recording" || phase === "stopping" || phoneActive;
   const micOn = phase === "recording" && band.phase === "connected";
   const now = useNow(phase === "recording");
   const elapsed = state.recordingSince ? now - state.recordingSince : 0;
@@ -100,8 +104,9 @@ function Recorder() {
   }, [state.visit?.id, phase]);
 
   // Leaving while recording: in-app links ask first (design Dialog); closing the tab gets the browser's warning.
+  // (A phone handoff keeps recording on the phone, so leaving is harmless there.)
   useEffect(() => {
-    if (!busy) return;
+    if (!busy || phoneActive) return;
     const offGuard = setNavigationGuard((target) => {
       if (bypassGuard.current) return true;
       window.history.replaceState(window.history.state, "", `${window.location.pathname}${window.location.search}${ownHash.current}`);
@@ -117,7 +122,7 @@ function Recorder() {
       offGuard();
       window.removeEventListener("beforeunload", onBeforeUnload);
     };
-  }, [busy]);
+  }, [busy, phoneActive]);
 
   function leave(target: string) {
     bypassGuard.current = true;
@@ -130,10 +135,10 @@ function Recorder() {
     if (!capture) out.push("checking transcription");
     else if (capture.transcriber === null) out.push("transcription is unavailable");
     if (!clientRef) out.push("choose a client");
-    if (band.phase !== "connected") out.push("connect the band");
+    if (!phone && band.phase !== "connected") out.push("connect the band");
     if (!consent) out.push("confirm consent");
     return out;
-  }, [capture, clientRef, band.phase, consent]);
+  }, [capture, clientRef, band.phase, consent, phone]);
 
   async function onStop() {
     const sessionId = await stop();
@@ -218,6 +223,7 @@ function Recorder() {
             onConnect={connect}
             onDisconnect={() => void disconnect()}
             onFlash={flash}
+            onPhone={setPhone}
           />
         </div>
 
@@ -234,12 +240,18 @@ function Recorder() {
                 <p className="u2-muted">
                   {selected
                     ? `For ${selected.client.displayName ?? selected.client.clientRef}.`
-                    : "Choose a client, connect the band and confirm consent to start."}
+                    : phone
+                      ? "Choose a client and confirm consent, then hand the visit to the iPhone."
+                      : "Choose a client, connect the band and confirm consent to start."}
                 </p>
               </div>
             </div>
 
-            {(busy || phase === "processing" || state.visit) && (
+            {phone && phase === "idle" && (
+              <PhoneHandoff clientRef={clientRef} choice={phone} blockers={blockers} onActiveChange={setPhoneActive} />
+            )}
+
+            {!phone && (busy || phase === "processing" || state.visit) && (
               <div className="rv-live">
                 <span className="rv-timer" aria-label={`Elapsed ${formatElapsed(elapsed)}`}>
                   {formatElapsed(elapsed)}
@@ -268,68 +280,72 @@ function Recorder() {
               </div>
             )}
 
-            {state.error && (
-              <p className="u2-inline-error" role="alert">
-                <AlertTriangle size={15} aria-hidden="true" />
-                <span>
-                  {state.error.message} <span className="mono">({state.error.code})</span>
-                </span>
-              </p>
-            )}
+            {!phone && (
+              <>
+                {state.error && (
+                  <p className="u2-inline-error" role="alert">
+                    <AlertTriangle size={15} aria-hidden="true" />
+                    <span>
+                      {state.error.message} <span className="mono">({state.error.code})</span>
+                    </span>
+                  </p>
+                )}
 
-            {phase === "processing" && (
-              <p className="u2-note" role="status">
-                <Spinner size={14} /> Processing… preparing the session draft from the transcript.
-              </p>
-            )}
+                {phase === "processing" && (
+                  <p className="u2-note" role="status">
+                    <Spinner size={14} /> Processing… preparing the session draft from the transcript.
+                  </p>
+                )}
 
-            <div className="rv-actions">
-              {phase === "idle" && (
-                <Button
-                  variant="primary"
-                  icon={<Mic size={16} />}
-                  disabled={blockers.length > 0}
-                  onClick={() => void start(clientRef)}
-                >
-                  Start recording
-                </Button>
-              )}
-              {phase === "starting" && (
-                <Button variant="primary" loading>
-                  Starting…
-                </Button>
-              )}
-              {(phase === "recording" || phase === "stopping" || (phase === "error" && openVisit)) && (
-                <Button
-                  variant="danger"
-                  icon={<Square size={15} />}
-                  loading={phase === "stopping"}
-                  onClick={() => void onStop()}
-                >
-                  {phase === "stopping" ? "Stopping…" : phase === "error" ? "Stop and keep transcript" : "Stop visit"}
-                </Button>
-              )}
-              {phase === "error" && !openVisit && (
-                <Button variant="primary" icon={<Mic size={16} />} disabled={blockers.length > 0} onClick={() => void start(clientRef)}>
-                  Try again
-                </Button>
-              )}
-              {phase === "processing" && state.sessionId && (
-                <a className="ds-btn ds-btn-secondary ds-btn-md" href={hrefs.session(state.sessionId)}>
-                  <span className="ds-btn-label">Open session now</span>
-                  <ArrowRight size={15} aria-hidden="true" />
-                </a>
-              )}
-            </div>
-            {phase === "idle" && blockers.length > 0 && <p className="rv-why">To start: {blockers.join(", ")}.</p>}
-            {phase === "idle" && blockers.length === 0 && (
-              <p className="rv-why">
-                <ShieldCheck size={12} aria-hidden="true" /> The band’s light turns solid blue while it records.
-              </p>
-            )}
+                <div className="rv-actions">
+                  {phase === "idle" && (
+                    <Button
+                      variant="primary"
+                      icon={<Mic size={16} />}
+                      disabled={blockers.length > 0}
+                      onClick={() => void start(clientRef)}
+                    >
+                      Start recording
+                    </Button>
+                  )}
+                  {phase === "starting" && (
+                    <Button variant="primary" loading>
+                      Starting…
+                    </Button>
+                  )}
+                  {(phase === "recording" || phase === "stopping" || (phase === "error" && openVisit)) && (
+                    <Button
+                      variant="danger"
+                      icon={<Square size={15} />}
+                      loading={phase === "stopping"}
+                      onClick={() => void onStop()}
+                    >
+                      {phase === "stopping" ? "Stopping…" : phase === "error" ? "Stop and keep transcript" : "Stop visit"}
+                    </Button>
+                  )}
+                  {phase === "error" && !openVisit && (
+                    <Button variant="primary" icon={<Mic size={16} />} disabled={blockers.length > 0} onClick={() => void start(clientRef)}>
+                      Try again
+                    </Button>
+                  )}
+                  {phase === "processing" && state.sessionId && (
+                    <a className="ds-btn ds-btn-secondary ds-btn-md" href={hrefs.session(state.sessionId)}>
+                      <span className="ds-btn-label">Open session now</span>
+                      <ArrowRight size={15} aria-hidden="true" />
+                    </a>
+                  )}
+                </div>
+                {phase === "idle" && blockers.length > 0 && <p className="rv-why">To start: {blockers.join(", ")}.</p>}
+                {phase === "idle" && blockers.length === 0 && (
+                  <p className="rv-why">
+                    <ShieldCheck size={12} aria-hidden="true" /> The band’s light turns solid blue while it records.
+                  </p>
+                )}
 
-            {(busy || state.segments.length > 0 || state.interim) && (
-              <LiveTranscript segments={state.segments} interim={state.interim} live={phase === "recording"} />
+                {(busy || state.segments.length > 0 || state.interim) && (
+                  <LiveTranscript segments={state.segments} interim={state.interim} live={phase === "recording"} />
+                )}
+              </>
             )}
           </Card>
         </div>

@@ -160,6 +160,74 @@ describe("band visit", () => {
   });
 });
 
+describe("phone handoff (GlassCam)", () => {
+  async function startBle(hh: V3Harness, cookie: string) {
+    const start = await hh.req("/api/visits", { method: "POST", cookie, body: { clientRef: "C-104", bandNumber: 7, transport: "ble" } });
+    expect(start.status, start.text).toBe(201);
+    const token = new URL(start.json.data.streamUrl.replace(/^ws/, "http")).searchParams.get("token")!;
+    return { visit: start.json.data.visit, token, streamUrl: start.json.data.streamUrl as string };
+  }
+
+  it("PUBLIC_STREAM_ORIGIN replaces the request host in streamUrl; invalid values are ignored", async () => {
+    const { hh, cookie } = await setup();
+    h = hh;
+    const env = hh.env as any;
+    env.PUBLIC_STREAM_ORIGIN = "ws://192.168.1.20:8787/";
+    const a = await startBle(hh, cookie);
+    expect(a.streamUrl).toMatch(new RegExp(`^ws://192\\.168\\.1\\.20:8787/api/visits/${a.visit.id}/stream\\?token=`));
+    env.PUBLIC_STREAM_ORIGIN = "wss://field.example.com";
+    expect((await startBle(hh, cookie)).streamUrl.startsWith("wss://field.example.com/api/visits/")).toBe(true);
+    env.PUBLIC_STREAM_ORIGIN = "https://field.example.com";
+    expect((await startBle(hh, cookie)).streamUrl.startsWith("ws://localhost:8787/api/visits/")).toBe(true);
+    env.PUBLIC_STREAM_ORIGIN = "not a url";
+    expect((await startBle(hh, cookie)).streamUrl.startsWith("ws://localhost:8787/api/visits/")).toBe(true);
+  });
+
+  it("status and stop with the stream token (no cookie), idempotent; bad or foreign tokens are 401", async () => {
+    const { hh, cookie } = await setup();
+    h = hh;
+    const { visit, token } = await startBle(hh, cookie);
+    const other = await startBle(hh, cookie);
+    const q = `?token=${encodeURIComponent(token)}`;
+
+    const st = await hh.req(`/api/visits/${visit.id}/status${q}`, { origin: null });
+    expect(st.status, st.text).toBe(200);
+    expect(st.json.data.visit).toMatchObject({ id: visit.id, status: "recording", segmentCount: 0, bandNumber: 7 });
+    expect(st.json.data.segments).toBeUndefined();
+    // cookie works too; nothing at all → 401
+    expect((await hh.req(`/api/visits/${visit.id}/status`, { cookie })).json.data.visit.id).toBe(visit.id);
+    expect((await hh.req(`/api/visits/${visit.id}/status`, { origin: null })).status).toBe(401);
+    expect((await hh.req(`/api/visits/${visit.id}/status?token=nope`, { origin: null })).status).toBe(401);
+
+    // wrong token / token for another visit
+    expect((await hh.req(`/api/visits/${visit.id}/stop?token=nope`, { method: "POST" })).status).toBe(401);
+    const foreign = `?token=${encodeURIComponent(other.token)}`;
+    expect((await hh.req(`/api/visits/${visit.id}/stop${foreign}`, { method: "POST" })).status).toBe(401);
+    expect((await hh.req(`/api/visits/${visit.id}/status${foreign}`, { origin: null })).status).toBe(401);
+    // POST without an Origin is rejected by the global origin guard, even with a valid token
+    expect((await hh.req(`/api/visits/${visit.id}/stop${q}`, { method: "POST", origin: null })).status).toBe(403);
+    expect((await hh.req(`/api/visits/${visit.id}`, { cookie })).json.data.visit.status).toBe("recording");
+
+    // the phone sends Origin = scheme://host:port of the request (the harness default)
+    const stop = await hh.req(`/api/visits/${visit.id}/stop${q}`, { method: "POST" });
+    expect(stop.status, stop.text).toBe(200);
+    const sessionId = stop.json.data.sessionId;
+    expect(sessionId).toBeTruthy();
+    expect(stop.json.data.visit).toMatchObject({ id: visit.id, status: "stopped", sessionId });
+    const again = await hh.req(`/api/visits/${visit.id}/stop${q}`, { method: "POST" });
+    expect(again.status).toBe(200);
+    expect(again.json.data.sessionId).toBe(sessionId);
+    // cookie stop is the same logic: same session
+    expect((await hh.req(`/api/visits/${visit.id}/stop`, { method: "POST", cookie })).json.data.sessionId).toBe(sessionId);
+
+    const after = await hh.req(`/api/visits/${visit.id}/status${q}`, { origin: null });
+    expect(after.json.data.visit).toMatchObject({ status: "stopped", sessionId });
+    // the other visit is untouched
+    expect((await hh.req(`/api/visits/${other.visit.id}/status${foreign}`, { origin: null })).json.data.visit.status).toBe("recording");
+    await hh.settle();
+  });
+});
+
 describe("stream token", () => {
   it("is bound to one visit and expires", async () => {
     const secret = "integration-test-session-secret-0123456789abcdef";

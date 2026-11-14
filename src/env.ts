@@ -18,6 +18,14 @@ export interface Env {
   /** Fixture variant selector for synthetic evidence/extraction (default "normal"). */
   FIXTURE_VARIANT?: string;
 
+  /**
+   * Band visits: origin used for the `streamUrl` returned by POST /api/visits, instead of the
+   * request's own host, so a phone bridge (GlassCam) can reach it. Must be ws:// or wss://
+   * (e.g. "ws://192.168.1.20:8787" for a phone on the LAN in dev, "wss://field.example.com").
+   * Anything else is ignored (and logged). Unset → derived from the request URL.
+   */
+  PUBLIC_STREAM_ORIGIN?: string;
+
   /** v2: default inference provider when a user has no AI settings (anthropic|openai|gemini|mistral). */
   AI_PROVIDER?: string;
 

@@ -468,7 +468,7 @@ async function prepareDraft(deps: WorkflowDeps, sessionId: string, rev: number, 
     promptVersion: extraction.promptVersion,
     model: extraction.model,
     evidenceCompleteness: result.completeness,
-    evidenceWarnings: [...result.warnings, ...match.warnings],
+    evidenceWarnings: [...new Set([...result.warnings, ...match.warnings])],
   };
   // v2 extras from the multi-provider extractor (counts only, never values).
   const ext = extraction as typeof extraction & {

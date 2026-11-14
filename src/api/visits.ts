@@ -7,11 +7,14 @@
  *   GET  /api/visits                  → Visit[] (the actor's, newest first)
  *   POST /api/visits                  StartVisitRequest → 201 StartVisitResponse
  *   GET  /api/visits/:id              → VisitDetail
- *   POST /api/visits/:id/stop         → StopVisitResponse (hands the visit to processing)
+ *   GET  /api/visits/:id/status       → { visit } (cookie, or ?token= for a phone bridge)
+ *   POST /api/visits/:id/stop         → StopVisitResponse (hands the visit to processing; cookie, or ?token=)
  *   GET  /api/visits/:id/stream       WebSocket (cookie + same Origin, or ?token=)
  *
- * The stream route is mounted before requireActor (a bridge has no cookie) and
- * authenticates itself. Audio is never stored.
+ * The token routes (stream, and stop/status with ?token=) are mounted before
+ * requireActor (a bridge has no cookie) and authenticate themselves. POST still
+ * passes the global originGuard, so a bridge sends `Origin: <scheme://host:port>`
+ * of the URL it calls. Audio is never stored.
  */
 import { Hono, type Context, type MiddlewareHandler } from "hono";
 import {
@@ -74,9 +77,63 @@ function defaultOpen(deps: ApiDeps) {
   };
 }
 
-function wsOrigin(c: Context<AppBindings>): string {
+/**
+ * The configured PUBLIC_STREAM_ORIGIN as `ws(s)://host[:port]`, or null when unset or invalid
+ * (invalid is logged, then the request host is used).
+ */
+export function publicStreamOrigin(raw: string | undefined): string | null {
+  const value = raw?.trim();
+  if (!value) return null;
+  try {
+    const u = new URL(value);
+    if ((u.protocol === "ws:" || u.protocol === "wss:") && u.host) return `${u.protocol}//${u.host}`;
+  } catch {
+    /* fall through */
+  }
+  log("warn", "visit.public_stream_origin_invalid", { reason: "expected ws:// or wss:// origin" });
+  return null;
+}
+
+function wsOrigin(deps: ApiDeps, c: Context<AppBindings>): string {
+  const configured = publicStreamOrigin(deps.env.PUBLIC_STREAM_ORIGIN);
+  if (configured) return configured;
   const u = new URL(c.req.url);
   return `${u.protocol === "https:" ? "wss:" : "ws:"}//${u.host}`;
+}
+
+/**
+ * Stop a visit (idempotent) and hand it to processing. Shared by the cookie route and the
+ * token route (phone bridge), so both behave identically.
+ */
+async function stopVisitAs(deps: ApiDeps, c: Context<AppBindings>, providerId: string, visitId: string) {
+  const v = deps.visits;
+  if (!v) return unavailable(c);
+  const stopped = await v.store.stopVisit(providerId, visitId, deps.clock.now().toISOString());
+  if (!stopped) return apiError(c, 404, "NOT_FOUND", "Visit not found", false);
+  let sessionId = stopped.sessionId;
+  if (!sessionId) {
+    const appt = await deps.repo.getAppointment(stopped.appointmentId);
+    if (!appt) return apiError(c, 500, "INTERNAL", "Visit appointment missing", true);
+    sessionId = (await v.enqueueAppointment(appt)).sessionId;
+    await v.store.setSession(stopped.id, sessionId);
+  }
+  const visit = (await v.store.getVisit(providerId, stopped.id)) ?? stopped;
+  const res: StopVisitResponse = { visit, sessionId };
+  return ok(c, res);
+}
+
+async function visitStatusAs(deps: ApiDeps, c: Context<AppBindings>, providerId: string, visitId: string) {
+  const v = deps.visits;
+  if (!v) return unavailable(c);
+  const visit = await v.store.getVisit(providerId, visitId);
+  if (!visit) return apiError(c, 404, "NOT_FOUND", "Visit not found", false);
+  return ok(c, { visit });
+}
+
+/** Provider id for a valid `?token=` stream token for this visit, or null. */
+async function tokenProvider(deps: ApiDeps, token: string, visitId: string): Promise<string | null> {
+  const secret = deps.env.SESSION_SECRET;
+  return secret ? await verifyStreamToken(token, visitId, secret, deps.clock.now().getTime()) : null;
 }
 
 function unavailable(c: Context<AppBindings>) {
@@ -146,7 +203,7 @@ export function visitsRoutes(deps: ApiDeps): Hono<AppBindings> {
     const t = await signStreamToken({ providerId: actor.providerId, visitId: visit.id, nowMs: now.getTime() }, secret);
     const res: StartVisitResponse = {
       visit,
-      streamUrl: `${wsOrigin(c)}/api/visits/${encodeURIComponent(visit.id)}/stream?token=${encodeURIComponent(t.token)}`,
+      streamUrl: `${wsOrigin(deps, c)}/api/visits/${encodeURIComponent(visit.id)}/stream?token=${encodeURIComponent(t.token)}`,
       streamTokenExpiresAt: t.expiresAt,
     };
     return ok(c, res, 201);
@@ -161,23 +218,9 @@ export function visitsRoutes(deps: ApiDeps): Hono<AppBindings> {
     return ok(c, res);
   });
 
-  app.post("/api/visits/:id/stop", async (c) => {
-    const v = deps.visits;
-    if (!v) return unavailable(c);
-    const actor = c.get("actor");
-    const stopped = await v.store.stopVisit(actor.providerId, c.req.param("id"), deps.clock.now().toISOString());
-    if (!stopped) return apiError(c, 404, "NOT_FOUND", "Visit not found", false);
-    let sessionId = stopped.sessionId;
-    if (!sessionId) {
-      const appt = await deps.repo.getAppointment(stopped.appointmentId);
-      if (!appt) return apiError(c, 500, "INTERNAL", "Visit appointment missing", true);
-      sessionId = (await v.enqueueAppointment(appt)).sessionId;
-      await v.store.setSession(stopped.id, sessionId);
-    }
-    const visit = (await v.store.getVisit(actor.providerId, stopped.id)) ?? stopped;
-    const res: StopVisitResponse = { visit, sessionId };
-    return ok(c, res);
-  });
+  app.get("/api/visits/:id/status", (c) => visitStatusAs(deps, c, c.get("actor").providerId, c.req.param("id")));
+
+  app.post("/api/visits/:id/stop", (c) => stopVisitAs(deps, c, c.get("actor").providerId, c.req.param("id")));
 
   return app;
 }
@@ -192,8 +235,7 @@ export function visitStreamRoutes(deps: ApiDeps): Hono<AppBindings> {
     const token = c.req.query("token");
     const visitId = c.req.param("id") ?? "";
     if (token) {
-      const secret = deps.env.SESSION_SECRET;
-      const providerId = secret ? await verifyStreamToken(token, visitId, secret, deps.clock.now().getTime()) : null;
+      const providerId = await tokenProvider(deps, token, visitId);
       if (!providerId) return apiError(c, 401, "UNAUTHENTICATED", "Invalid or expired stream token.", false);
       c.set("actor", { providerId, identity: `visit:${visitId}` });
       return next();
@@ -206,6 +248,22 @@ export function visitStreamRoutes(deps: ApiDeps): Hono<AppBindings> {
     }
     return cookieAuth(c, next);
   };
+
+  // Phone bridge (no cookie): stop / status with ?token=. Without a token, fall through to the
+  // cookie routes in visitsRoutes (behind requireActor).
+  const withToken =
+    (run: typeof stopVisitAs): MiddlewareHandler<AppBindings> =>
+    async (c, next) => {
+      const token = c.req.query("token");
+      if (!token) return next();
+      const visitId = c.req.param("id") ?? "";
+      const providerId = await tokenProvider(deps, token, visitId);
+      if (!providerId) return apiError(c, 401, "UNAUTHENTICATED", "Invalid or expired stream token.", false);
+      c.set("actor", { providerId, identity: `visit:${visitId}` });
+      return run(deps, c, providerId, visitId);
+    };
+  app.post("/api/visits/:id/stop", withToken(stopVisitAs));
+  app.get("/api/visits/:id/status", withToken(visitStatusAs));
 
   app.get("/api/visits/:id/stream", auth, async (c) => {
     const v = deps.visits;

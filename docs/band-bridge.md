@@ -18,7 +18,7 @@ POST /api/visits/:id/stop ──▶ appointment end = stop time ──▶ sessio
 
 - The visit creates its own appointment (`appt_visit_…`). It copies the client's service plan from their most recent appointment; with no earlier appointment the call returns 422 `NO_SERVICE_PLAN`.
 - The appointment stays open, so discovery ignores it, until the visit is stopped or 12 hours pass.
-- `streamUrl` is `ws(s)://<host>/api/visits/<id>/stream?token=<token>`. The token is signed, valid for 4 hours and scoped to that one visit. **Treat it as a secret: never log the URL.** A native bridge only needs this URL; the user pastes it or scans it.
+- `streamUrl` is `ws(s)://<host>/api/visits/<id>/stream?token=<token>`. `<host>` is the request's host, or `PUBLIC_STREAM_ORIGIN` when that is set (see [Phone handoff](#phone-handoff-glasscam)). The token is signed, valid for 4 hours and scoped to that one visit. **Treat it as a secret: never log the URL.** A native bridge only needs this URL; the user pastes it or scans it.
 
 ## 2. Stream
 Connect to `streamUrl` with a WebSocket.
@@ -41,7 +41,48 @@ Server → client (JSON text): `ready{transcriber}` (wait for it before sending 
 - Only one connection per visit should stream at a time.
 
 ## 3. Stop
-`POST /api/visits/:id/stop` (signed in) → `{ visit, sessionId }`. This is idempotent. It sets the appointment's end to now and queues processing; the session then appears in Today as usual: NEEDS_REVIEW, with the approval checklist.
+`POST /api/visits/:id/stop` (signed in, or `?token=<stream token>` from a bridge) → `{ visit, sessionId }`. This is idempotent. It sets the appointment's end to now and queues processing; the session then appears in Today as usual: NEEDS_REVIEW, with the approval checklist.
+
+## Phone handoff (GlassCam)
+A visit started in the web app can be recorded by the iPhone app instead of the browser. In **Record visit**, pick **Record on iPhone (GlassCam)**, enter the band number, choose the client, confirm consent and press **Start on phone**. The page calls `POST /api/visits` (`transport: "ble"`) and shows a QR code plus **Copy link** for the deep link below. It then polls `GET /api/visits/:id` every 3 s (status, packets, segment count, the latest lines). When the visit is `stopped` with a `sessionId`, it waits for processing and opens `#/sessions/<sessionId>`. **Stop from here** (`POST /api/visits/:id/stop`, cookie) covers a phone that is gone.
+
+### Deep link
+```
+glasscam://band-visit?stream=<encodeURIComponent(streamUrl)>&band=<bandNumber>&client=<clientRef>
+```
+- `stream`: the full `streamUrl` (with `?token=`), percent-encoded once. Decode it, then use it as is.
+- `band`: the band number, 1 to 999. It is **omitted** when the user left the number empty (GlassCam then lets them pick a band).
+- `client`: the client **ref** (e.g. `C-104`), never a name. It is for display only; the visit is already bound to the client.
+- The link carries the stream token, so it is a **secret** until `streamTokenExpiresAt` (4 h). The page hides the raw link behind **Show link** with that warning. Never log it.
+
+Helpers: `src/ui/components/visit/handoff.ts` (`glasscamLink`).
+
+### Reaching the Worker from the phone
+The phone can't reach `localhost`. Set an origin the phone can reach and listen on every interface:
+```sh
+# .dev.vars
+PUBLIC_STREAM_ORIGIN=ws://192.168.1.20:8787     # this Mac's LAN IP (ipconfig getifaddr en0)
+# then, instead of plain wrangler dev:
+npm run build:ui && npx wrangler dev --port 8787 --ip 0.0.0.0
+```
+- `PUBLIC_STREAM_ORIGIN` (optional) must be `ws://` or `wss://` (deployed: `wss://field.example.com`). Only the scheme, host and port are used. Any other value is ignored and logged as `visit.public_stream_origin_invalid`, and the request host is used instead.
+- When the `streamUrl` host is still `localhost`/`127.0.0.1`, the page shows a warning that says exactly this.
+- The web app itself can stay on `http://localhost:8787` (dev login only works on loopback).
+
+### Bridge endpoints (token auth, no cookie)
+The token is the `token` query parameter of `streamUrl`. It is scoped to that one visit: a bad or expired token, or one minted for another visit, returns `401 UNAUTHENTICATED`.
+
+| Request | Response |
+|---|---|
+| `GET /api/visits/:id/stream?token=…` | WebSocket (section 2) |
+| `GET /api/visits/:id/status?token=…` | `200 { data: { visit } }`. `visit.status` is `recording` or `stopped`, plus `packets`, `lostPackets`, `segmentCount`, `sessionId` |
+| `POST /api/visits/:id/stop?token=…` (no body needed) | `200 { data: { visit, sessionId } }`. The same logic as the cookie route, and idempotent |
+
+Without `?token=`, these paths fall through to the normal cookie routes. `GET /api/visits/:id/status` also works signed in.
+
+**Origin header rule.** Every non-GET request passes the global origin guard (`src/security` `originGuard`): it needs an `Origin` header equal to `APP_ORIGIN` or to the request's own origin. URLSession sends no `Origin`, so GlassCam must set `Origin: <scheme>://<host>[:port]` of the URL it calls. For `ws://192.168.1.20:8787/...` that means calling `http://192.168.1.20:8787/api/visits/<id>/stop?token=…` with `Origin: http://192.168.1.20:8787`. Without it the stop returns `403 ORIGIN_REJECTED`. The HTTP base comes from `streamUrl`: `ws:` becomes `http:` and `wss:` becomes `https:`. GET (status) and the WebSocket with a token need no `Origin`.
+
+Recommended phone flow: send `{"type":"stop"}` on the socket and wait for `done` (this flushes the transcriber). Then call `POST …/stop?token=` to hand the visit to processing. The web page notices within 3 s and opens the session.
 
 ## Transcribers
 | | When | Evidence label |
@@ -56,7 +97,7 @@ Deepgram settings are the kit's (`nova-3`, Opus 16 kHz mono, `endpointing=100`, 
 GlassCam already has a WebSocket uploader with reconnect and keep-alive (`GlassCam/Media/Broadcaster.swift`). It needs:
 1. **A CoreBluetooth central.** It scans for service `254f0001-df82-4a9c-a2b5-563a0f6b2021` with the exact name `Vexo-HACK-NN`, connects and subscribes to TX `254f0003-…`. It writes commands to RX `254f0002-…`: `GET_INFO` first, checking `band_no`, then the clock set, then `STREAM_START` with the audio bit (mask 8). One command at a time, waiting for each response. The exact bytes are in the kit's `contract/contract.md` and `docs/bluetooth-contract.md`.
 2. **Parse AUDIO frames** (type `0x13`) and forward each one as `[seq BE][opus]` to `streamUrl`. Send `start` first.
-3. **UI:** paste or scan the `streamUrl`, show the band status, the solid-blue "mic on" state, and Stop.
+3. **UI:** open the `glasscam://band-visit` deep link (or paste the `streamUrl`), show the band status, the solid-blue "mic on" state, and Stop (socket `stop`, then `POST …/stop?token=` with the `Origin` header; see [Phone handoff](#phone-handoff-glasscam)).
 4. **Test without hardware:** `node --experimental-websocket scripts/band/stream-smoke.mjs` plays the same protocol with fake packets.
 
 ## Try it locally
