@@ -16,9 +16,17 @@ import type {
   SessionStatus,
   SessionSummary,
   SyncSettings,
+  AiSettings,
+  ConnectionProvider,
+  EmailSettings,
+  FileDelivery,
+  OAuthPending,
+  StorageSettings,
+  StoredConnection,
 } from "../contracts";
 
-export type PendingOperation = "process_session" | "approval_notification";
+/** v2 adds "file_delivery": an auto drive upload after completion (payload: { deliveryId }). */
+export type PendingOperation = "process_session" | "approval_notification" | "file_delivery";
 
 export interface PendingDelivery {
   deliveryKey: string;
@@ -140,4 +148,44 @@ export interface Repository {
   /** Records a failure; schedules retry with backoff, or marks exhausted at maxAttempts. */
   failDelivery(deliveryKey: string, error: string, now: Date, maxAttempts: number): Promise<PendingDelivery["status"]>;
   getDelivery(deliveryKey: string): Promise<PendingDelivery | null>;
+
+  // ================================================================ v2
+  // ---- per-provider settings (defaults from DEFAULT_*_SETTINGS when unset)
+  getStorageSettings(providerId: string): Promise<StorageSettings>;
+  saveStorageSettings(providerId: string, settings: StorageSettings, now: Date): Promise<void>;
+  getEmailSettings(providerId: string): Promise<EmailSettings>;
+  saveEmailSettings(providerId: string, settings: EmailSettings, now: Date): Promise<void>;
+  /** Default when unset: DEFAULT_AI_SETTINGS, with provider overridden by env.AI_PROVIDER at the call site. */
+  getAiSettings(providerId: string): Promise<AiSettings | null>;
+  saveAiSettings(providerId: string, settings: AiSettings, now: Date): Promise<void>;
+  /** Identity for a provider id (for email templates). */
+  getProviderIdentity(providerId: string): Promise<string | null>;
+
+  // ---- cloud connections (tokens stay encrypted; callers encrypt/decrypt)
+  getConnection(providerId: string, provider: ConnectionProvider): Promise<StoredConnection | null>;
+  listConnections(providerId: string): Promise<StoredConnection[]>;
+  saveConnection(conn: StoredConnection): Promise<void>;
+  deleteConnection(providerId: string, provider: ConnectionProvider): Promise<void>;
+  /** One-time OAuth state (PKCE verifier + return path). */
+  saveOAuthPending(p: OAuthPending): Promise<void>;
+  /** Atomically deletes and returns the row if present and not expired; else null. */
+  consumeOAuthPending(nonce: string, now: Date): Promise<OAuthPending | null>;
+
+  // ---- file deliveries (drive uploads, email drafts)
+  createFileDelivery(d: FileDelivery): Promise<void>;
+  updateFileDelivery(
+    id: string,
+    patch: Partial<Pick<FileDelivery, "status" | "externalId" | "webUrl" | "error">>,
+    now: Date,
+  ): Promise<void>;
+  getFileDelivery(id: string): Promise<FileDelivery | null>;
+  listFileDeliveries(sessionId: string): Promise<FileDelivery[]>;
+  /** COMPLETED sessions for a provider, newest service first, with their final bundles. Cursor pagination ≤50. */
+  listCompletedForProvider(
+    providerId: string,
+    limit: number,
+    cursor: string | null,
+  ): Promise<{ items: { session: SessionRecord; final: FinalBundle; approval: ApprovalRecord }[]; nextCursor: string | null }>;
+  /** Generic pending delivery insert (used for "file_delivery"). Idempotent per deliveryKey. */
+  enqueuePendingDelivery(d: { deliveryKey: string; operation: PendingOperation; sessionId: string; revision: number; payload: Record<string, unknown> }, now: Date): Promise<void>;
 }

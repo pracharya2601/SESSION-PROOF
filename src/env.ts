@@ -18,8 +18,27 @@ export interface Env {
   /** Fixture variant selector for synthetic evidence/extraction (default "normal"). */
   FIXTURE_VARIANT?: string;
 
+  /** v2: default inference provider when a user has no AI settings (anthropic|openai|gemini|mistral). */
+  AI_PROVIDER?: string;
+
   // secrets
+  /** Anthropic key (legacy name). */
   AI_API_KEY?: string;
+  ANTHROPIC_API_KEY?: string;
+  OPENAI_API_KEY?: string;
+  GEMINI_API_KEY?: string;
+  MISTRAL_API_KEY?: string;
+  /** Optional base URL overrides (e.g. Cloudflare AI Gateway per provider). */
+  OPENAI_BASE_URL?: string;
+  GEMINI_BASE_URL?: string;
+  MISTRAL_BASE_URL?: string;
+  /** OAuth clients for Connections (Drive/Gmail, OneDrive/Outlook). */
+  GOOGLE_CLIENT_ID?: string;
+  GOOGLE_CLIENT_SECRET?: string;
+  MS_CLIENT_ID?: string;
+  MS_CLIENT_SECRET?: string;
+  /** Azure AD tenant; default "common". */
+  MS_TENANT?: string;
   TOKEN_ENCRYPTION_KEY?: string;
   SESSION_SECRET?: string;
 }

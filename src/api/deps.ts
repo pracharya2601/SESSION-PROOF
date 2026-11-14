@@ -20,6 +20,8 @@ export interface ApiDeps {
   notifyApproval: (approval: ApprovalRecord) => Promise<void>;
   /** Dev/operator only. */
   seed?: () => Promise<void>;
+  /** v2: injectable fetch for outbound provider calls (OAuth, Drive, Mail, AI). Default: global fetch. */
+  fetch?: typeof fetch;
 }
 
 /** Authenticated actor — always derived server-side. */

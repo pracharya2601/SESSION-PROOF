@@ -266,6 +266,12 @@ export const BundleProvenance = z.object({
   model: z.string().nullable(),
   evidenceCompleteness: z.enum(["complete", "partial", "unknown"]),
   evidenceWarnings: z.array(ShortText),
+  /** v2: which inference provider produced the facts (null for fixture). */
+  aiProvider: z.string().max(32).nullable().optional(),
+  /** v2: PII scrubbing applied before inference. Counts only — never the values. */
+  privacy: z
+    .object({ scrubbed: z.boolean(), findings: z.record(z.string(), z.number().int().nonnegative()) })
+    .optional(),
 });
 export type BundleProvenance = z.infer<typeof BundleProvenance>;
 
