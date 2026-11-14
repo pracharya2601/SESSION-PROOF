@@ -1,0 +1,1026 @@
+{
+  "generatedAt": "2026-11-14T20:48:33.374Z",
+  "base": "http://localhost:8787",
+  "speed": 20,
+  "node": "v20.19.2",
+  "scenarios": [
+    {
+      "id": "sdp-320-normal",
+      "serviceCode": "CA-SDP 320 (hour)",
+      "startVisitMs": 6,
+      "visitId": "visit_488ec0039e704140bdc3309a4049d0e5",
+      "stream": {
+        "openToReadyMs": 5,
+        "streamMs": 5110,
+        "finals": 7,
+        "interims": 148,
+        "lastStats": {
+          "type": "stats",
+          "packets": 4500,
+          "lostPackets": 0
+        },
+        "end": {
+          "type": "done",
+          "segmentCount": 7
+        }
+      },
+      "sessionId": "sess_d460d83da7e1bcba065a155e",
+      "visitAfterStop": {
+        "packets": 4500,
+        "lostPackets": 0,
+        "segmentCount": 7
+      },
+      "stopToProcessedMs": 1113,
+      "afterProcessing": "NEEDS_REVIEW",
+      "evidence": 7,
+      "completeness": "complete",
+      "promptVersion": "fixture-scenario-v1",
+      "warnings": [
+        "Simulated transcript (synthetic, dev only): not a real recording.",
+        "Simulated transcript (synthetic, dev only): not a real recording."
+      ],
+      "blockingAtR1": [
+        "MISSING_CONFIRMED_DURATION",
+        "MISSING_PROGRESS"
+      ],
+      "nonBlockingAtR1": [
+        "UNKNOWN_GOAL_COVERAGE"
+      ],
+      "estimateAtR1": 0,
+      "scheduledMinutesAtR1": 0,
+      "amountCents": 4813,
+      "canApproveAfterReview": true,
+      "approveHttp": 202,
+      "approveToCompletedMs": 32,
+      "final": "COMPLETED",
+      "invoicePdf": "11758 B",
+      "runId": "wf-sess_d460d83da7e1bcba065a155e-r1",
+      "runStatus": "succeeded",
+      "runDurationMs": 1135,
+      "stagesAsStored": [
+        "discovered",
+        "queued",
+        "workflow_started",
+        "load",
+        "evidence",
+        "match",
+        "extraction",
+        "assemble",
+        "draft_saved",
+        "approval_wait",
+        "review_saved",
+        "approved",
+        "client_snapshot",
+        "finalize",
+        "completed",
+        "files"
+      ],
+      "stages": [
+        "discovered",
+        "queued",
+        "workflow_started",
+        "load",
+        "evidence",
+        "match",
+        "extraction",
+        "assemble",
+        "draft_saved",
+        "approval_wait",
+        "review_saved",
+        "approved",
+        "client_snapshot",
+        "finalize",
+        "files",
+        "completed"
+      ],
+      "sameMsTieReordered": true,
+      "timings": {
+        "perStage": {
+          "discovered": 0,
+          "queued": 0,
+          "workflow_started": 1027,
+          "load": 3,
+          "evidence": 12,
+          "match": 3,
+          "extraction": 4,
+          "assemble": 2,
+          "draft_saved": 3,
+          "approval_wait": 4,
+          "review_saved": 55,
+          "approved": 7,
+          "client_snapshot": 11,
+          "finalize": 3,
+          "files": 1,
+          "completed": 0
+        },
+        "evidenceMs": 4,
+        "extractionMs": 1,
+        "queuedToDraftMs": 1054,
+        "approvedToCompletedMs": 15
+      },
+      "runEventLeaks": 0,
+      "totalMs": 6341,
+      "result": "PASS",
+      "failures": []
+    },
+    {
+      "id": "sdp-334-training",
+      "serviceCode": "CA-SDP 334 (hour)",
+      "startVisitMs": 6,
+      "visitId": "visit_552450b87baa4a00bb562b407e2b4e35",
+      "stream": {
+        "openToReadyMs": 3,
+        "streamMs": 4564,
+        "finals": 6,
+        "interims": 128,
+        "lastStats": {
+          "type": "stats",
+          "packets": 4000,
+          "lostPackets": 0
+        },
+        "end": {
+          "type": "done",
+          "segmentCount": 6
+        }
+      },
+      "sessionId": "sess_e09f220ec3e50039d1c59625",
+      "visitAfterStop": {
+        "packets": 4000,
+        "lostPackets": 0,
+        "segmentCount": 6
+      },
+      "stopToProcessedMs": 1104,
+      "afterProcessing": "NEEDS_REVIEW",
+      "evidence": 6,
+      "completeness": "complete",
+      "promptVersion": "fixture-scenario-v1",
+      "warnings": [
+        "Simulated transcript (synthetic, dev only): not a real recording.",
+        "Simulated transcript (synthetic, dev only): not a real recording."
+      ],
+      "blockingAtR1": [
+        "MISSING_CONFIRMED_DURATION"
+      ],
+      "nonBlockingAtR1": [],
+      "estimateAtR1": 0,
+      "scheduledMinutesAtR1": 0,
+      "amountCents": 4333,
+      "canApproveAfterReview": true,
+      "approveHttp": 202,
+      "approveToCompletedMs": 30,
+      "final": "COMPLETED",
+      "invoicePdf": "11725 B",
+      "runId": "wf-sess_e09f220ec3e50039d1c59625-r1",
+      "runStatus": "succeeded",
+      "runDurationMs": 1110,
+      "stagesAsStored": [
+        "discovered",
+        "queued",
+        "workflow_started",
+        "load",
+        "evidence",
+        "match",
+        "extraction",
+        "assemble",
+        "draft_saved",
+        "approval_wait",
+        "review_saved",
+        "approved",
+        "client_snapshot",
+        "completed",
+        "files",
+        "finalize"
+      ],
+      "stages": [
+        "discovered",
+        "queued",
+        "workflow_started",
+        "load",
+        "evidence",
+        "match",
+        "extraction",
+        "assemble",
+        "draft_saved",
+        "approval_wait",
+        "review_saved",
+        "approved",
+        "client_snapshot",
+        "finalize",
+        "files",
+        "completed"
+      ],
+      "sameMsTieReordered": true,
+      "timings": {
+        "perStage": {
+          "discovered": 0,
+          "queued": 0,
+          "workflow_started": 1021,
+          "load": 1,
+          "evidence": 12,
+          "match": 1,
+          "extraction": 2,
+          "assemble": 2,
+          "draft_saved": 1,
+          "approval_wait": 2,
+          "review_saved": 49,
+          "approved": 5,
+          "client_snapshot": 12,
+          "finalize": 2,
+          "files": 0,
+          "completed": 0
+        },
+        "evidenceMs": 3,
+        "extractionMs": 1,
+        "queuedToDraftMs": 1040,
+        "approvedToCompletedMs": 14
+      },
+      "runEventLeaks": 0,
+      "totalMs": 5754,
+      "result": "PASS",
+      "failures": []
+    },
+    {
+      "id": "sdp-331-community",
+      "serviceCode": "CA-SDP 331 (day)",
+      "startVisitMs": 3,
+      "visitId": "visit_a0bd985c8fcd48c8ba84d992976d1d26",
+      "stream": {
+        "openToReadyMs": 3,
+        "streamMs": 5640,
+        "finals": 5,
+        "interims": 116,
+        "lastStats": {
+          "type": "stats",
+          "packets": 5000,
+          "lostPackets": 0
+        },
+        "end": {
+          "type": "done",
+          "segmentCount": 5
+        }
+      },
+      "sessionId": "sess_59a298640d592f2aca08e8ed",
+      "visitAfterStop": {
+        "packets": 5000,
+        "lostPackets": 0,
+        "segmentCount": 5
+      },
+      "stopToProcessedMs": 1124,
+      "afterProcessing": "NEEDS_REVIEW",
+      "evidence": 5,
+      "completeness": "complete",
+      "promptVersion": "fixture-scenario-v1",
+      "warnings": [
+        "Simulated transcript (synthetic, dev only): not a real recording.",
+        "Simulated transcript (synthetic, dev only): not a real recording."
+      ],
+      "blockingAtR1": [
+        "MISSING_CONFIRMED_DURATION",
+        "MISSING_PROGRESS"
+      ],
+      "nonBlockingAtR1": [],
+      "estimateAtR1": 0,
+      "scheduledMinutesAtR1": 0,
+      "amountCents": 8250,
+      "canApproveAfterReview": true,
+      "approveHttp": 202,
+      "approveToCompletedMs": 28,
+      "final": "COMPLETED",
+      "invoicePdf": "11749 B",
+      "runId": "wf-sess_59a298640d592f2aca08e8ed-r1",
+      "runStatus": "succeeded",
+      "runDurationMs": 1138,
+      "stagesAsStored": [
+        "discovered",
+        "queued",
+        "workflow_started",
+        "load",
+        "evidence",
+        "match",
+        "extraction",
+        "assemble",
+        "draft_saved",
+        "approval_wait",
+        "review_saved",
+        "approved",
+        "client_snapshot",
+        "finalize",
+        "completed",
+        "files"
+      ],
+      "stages": [
+        "discovered",
+        "queued",
+        "workflow_started",
+        "load",
+        "evidence",
+        "match",
+        "extraction",
+        "assemble",
+        "draft_saved",
+        "approval_wait",
+        "review_saved",
+        "approved",
+        "client_snapshot",
+        "finalize",
+        "files",
+        "completed"
+      ],
+      "sameMsTieReordered": true,
+      "timings": {
+        "perStage": {
+          "discovered": 0,
+          "queued": 1,
+          "workflow_started": 1016,
+          "load": 1,
+          "evidence": 18,
+          "match": 2,
+          "extraction": 3,
+          "assemble": 4,
+          "draft_saved": 3,
+          "approval_wait": 3,
+          "review_saved": 68,
+          "approved": 6,
+          "client_snapshot": 10,
+          "finalize": 2,
+          "files": 1,
+          "completed": 0
+        },
+        "evidenceMs": 1,
+        "extractionMs": 1,
+        "queuedToDraftMs": 1047,
+        "approvedToCompletedMs": 13
+      },
+      "runEventLeaks": 0,
+      "totalMs": 6838,
+      "result": "PASS",
+      "failures": []
+    },
+    {
+      "id": "lossy-bluetooth",
+      "serviceCode": "CA-SDP 320 (hour)",
+      "startVisitMs": 4,
+      "visitId": "visit_18bbe8f4a0e14e5d9ebf8c4d8c19990f",
+      "stream": {
+        "openToReadyMs": 3,
+        "streamMs": 6754,
+        "finals": 5,
+        "interims": 181,
+        "lastStats": {
+          "type": "stats",
+          "packets": 5775,
+          "lostPackets": 225
+        },
+        "end": {
+          "type": "done",
+          "segmentCount": 5
+        }
+      },
+      "sessionId": "sess_30a1c393ac05251deb9ee885",
+      "visitAfterStop": {
+        "packets": 5775,
+        "lostPackets": 225,
+        "segmentCount": 5
+      },
+      "stopToProcessedMs": 1135,
+      "afterProcessing": "NEEDS_REVIEW",
+      "evidence": 5,
+      "completeness": "partial",
+      "promptVersion": "fixture-scenario-v1",
+      "warnings": [
+        "Simulated transcript (synthetic, dev only): not a real recording.",
+        "225 audio packet(s) (3.8%) were lost on the Bluetooth link.",
+        "Evidence retrieval completeness is \"partial\"; some evidence may be missing.",
+        "Simulated transcript (synthetic, dev only): not a real recording.",
+        "225 audio packet(s) (3.8%) were lost on the Bluetooth link."
+      ],
+      "blockingAtR1": [
+        "MISSING_CONFIRMED_DURATION",
+        "MISSING_PROGRESS"
+      ],
+      "nonBlockingAtR1": [
+        "PARTIAL_EVIDENCE"
+      ],
+      "estimateAtR1": 0,
+      "scheduledMinutesAtR1": 0,
+      "amountCents": 3850,
+      "canApproveAfterReview": true,
+      "approveHttp": 202,
+      "approveToCompletedMs": 25,
+      "final": "COMPLETED",
+      "invoicePdf": "11707 B",
+      "runId": "wf-sess_30a1c393ac05251deb9ee885-r1",
+      "runStatus": "succeeded",
+      "runDurationMs": 1141,
+      "stagesAsStored": [
+        "discovered",
+        "queued",
+        "workflow_started",
+        "load",
+        "evidence",
+        "match",
+        "extraction",
+        "assemble",
+        "draft_saved",
+        "approval_wait",
+        "review_saved",
+        "approved",
+        "client_snapshot",
+        "files",
+        "finalize",
+        "completed"
+      ],
+      "stages": [
+        "discovered",
+        "queued",
+        "workflow_started",
+        "load",
+        "evidence",
+        "match",
+        "extraction",
+        "assemble",
+        "draft_saved",
+        "approval_wait",
+        "review_saved",
+        "approved",
+        "client_snapshot",
+        "finalize",
+        "files",
+        "completed"
+      ],
+      "sameMsTieReordered": true,
+      "timings": {
+        "perStage": {
+          "discovered": 0,
+          "queued": 1,
+          "workflow_started": 1026,
+          "load": 1,
+          "evidence": 9,
+          "match": 1,
+          "extraction": 3,
+          "assemble": 2,
+          "draft_saved": 3,
+          "approval_wait": 2,
+          "review_saved": 73,
+          "approved": 6,
+          "client_snapshot": 10,
+          "finalize": 3,
+          "files": 0,
+          "completed": 1
+        },
+        "evidenceMs": 2,
+        "extractionMs": 1,
+        "queuedToDraftMs": 1045,
+        "approvedToCompletedMs": 14
+      },
+      "runEventLeaks": 0,
+      "totalMs": 7964,
+      "result": "PASS",
+      "failures": []
+    },
+    {
+      "id": "reconnect-mid-visit",
+      "serviceCode": "CA-SDP 335 (hour)",
+      "startVisitMs": 6,
+      "visitId": "visit_41b7214ae3fc4b0c8f7b9c91608d41ef",
+      "stream": {
+        "openToReadyMs": 5,
+        "streamMs": 5766,
+        "finals": 6,
+        "interims": 176,
+        "lastStats": {
+          "type": "stats",
+          "packets": 5000,
+          "lostPackets": 0
+        },
+        "end": {
+          "type": "done",
+          "segmentCount": 6
+        }
+      },
+      "sessionId": "sess_8dfeb4fd62b3946baab0e120",
+      "visitAfterStop": {
+        "packets": 5000,
+        "lostPackets": 0,
+        "segmentCount": 6
+      },
+      "stopToProcessedMs": 1105,
+      "afterProcessing": "NEEDS_REVIEW",
+      "evidence": 6,
+      "completeness": "complete",
+      "promptVersion": "fixture-scenario-v1",
+      "warnings": [
+        "Simulated transcript (synthetic, dev only): not a real recording."
+      ],
+      "blockingAtR1": [
+        "MISSING_CONFIRMED_DURATION"
+      ],
+      "nonBlockingAtR1": [],
+      "estimateAtR1": 0,
+      "scheduledMinutesAtR1": 0,
+      "amountCents": 3585,
+      "canApproveAfterReview": true,
+      "approveHttp": 202,
+      "approveToCompletedMs": 29,
+      "final": "COMPLETED",
+      "invoicePdf": "11727 B",
+      "runId": "wf-sess_8dfeb4fd62b3946baab0e120-r1",
+      "runStatus": "succeeded",
+      "runDurationMs": 1119,
+      "stagesAsStored": [
+        "discovered",
+        "queued",
+        "workflow_started",
+        "load",
+        "evidence",
+        "match",
+        "extraction",
+        "assemble",
+        "draft_saved",
+        "approval_wait",
+        "review_saved",
+        "approved",
+        "client_snapshot",
+        "finalize",
+        "files",
+        "completed"
+      ],
+      "stages": [
+        "discovered",
+        "queued",
+        "workflow_started",
+        "load",
+        "evidence",
+        "match",
+        "extraction",
+        "assemble",
+        "draft_saved",
+        "approval_wait",
+        "review_saved",
+        "approved",
+        "client_snapshot",
+        "finalize",
+        "files",
+        "completed"
+      ],
+      "sameMsTieReordered": false,
+      "timings": {
+        "perStage": {
+          "discovered": 0,
+          "queued": 2,
+          "workflow_started": 1024,
+          "load": 1,
+          "evidence": 10,
+          "match": 2,
+          "extraction": 3,
+          "assemble": 3,
+          "draft_saved": 2,
+          "approval_wait": 4,
+          "review_saved": 47,
+          "approved": 7,
+          "client_snapshot": 9,
+          "finalize": 3,
+          "files": 1,
+          "completed": 1
+        },
+        "evidenceMs": 2,
+        "extractionMs": 1,
+        "queuedToDraftMs": 1045,
+        "approvedToCompletedMs": 14
+      },
+      "runEventLeaks": 0,
+      "totalMs": 6957,
+      "result": "PASS",
+      "failures": [],
+      "earlierAttempt": {
+        "result": "FAIL",
+        "failures": [
+          "afterProcessing: got QUEUED want NEEDS_REVIEW (timed out)",
+          "bundle: no bundle but NEEDS_REVIEW expected",
+          "final: got QUEUED want COMPLETED",
+          "amount: got null want 3585",
+          "stages: got discovered>queued want discovered>queued>workflow_started>load>evidence>match>extraction>assemble>draft_saved>approval_wait>review_saved>approved>client_snapshot>finalize>files>completed"
+        ],
+        "sessionId": "sess_0fb963d3d6f50dba9c9bb841",
+        "note": "session stuck in QUEUED (queue message never consumed; dev server instability during the run)"
+      }
+    },
+    {
+      "id": "participant-directed",
+      "serviceCode": "CA-SDP 320 (hour)",
+      "startVisitMs": 9,
+      "visitId": "visit_229bd6fbb39147ef8a205303b2b462ec",
+      "stream": {
+        "openToReadyMs": 4,
+        "streamMs": 5096,
+        "finals": 6,
+        "interims": 132,
+        "lastStats": {
+          "type": "stats",
+          "packets": 4500,
+          "lostPackets": 0
+        },
+        "end": {
+          "type": "done",
+          "segmentCount": 6
+        }
+      },
+      "sessionId": "sess_0d6531036288b7f7ff2c0201",
+      "visitAfterStop": {
+        "packets": 4500,
+        "lostPackets": 0,
+        "segmentCount": 6
+      },
+      "stopToProcessedMs": 1134,
+      "afterProcessing": "NEEDS_REVIEW",
+      "evidence": 6,
+      "completeness": "complete",
+      "promptVersion": "fixture-scenario-v1",
+      "warnings": [
+        "Simulated transcript (synthetic, dev only): not a real recording."
+      ],
+      "blockingAtR1": [
+        "MISSING_CONFIRMED_DURATION",
+        "MISSING_PROGRESS"
+      ],
+      "nonBlockingAtR1": [],
+      "estimateAtR1": 0,
+      "scheduledMinutesAtR1": 0,
+      "amountCents": 5963,
+      "canApproveAfterReview": true,
+      "approveHttp": 202,
+      "approveToCompletedMs": 26,
+      "final": "COMPLETED",
+      "invoicePdf": "12041 B",
+      "runId": "wf-sess_0d6531036288b7f7ff2c0201-r1",
+      "runStatus": "succeeded",
+      "runDurationMs": 1138,
+      "stagesAsStored": [
+        "discovered",
+        "queued",
+        "workflow_started",
+        "load",
+        "evidence",
+        "match",
+        "extraction",
+        "assemble",
+        "draft_saved",
+        "approval_wait",
+        "review_saved",
+        "approved",
+        "client_snapshot",
+        "files",
+        "finalize",
+        "completed"
+      ],
+      "stages": [
+        "discovered",
+        "queued",
+        "workflow_started",
+        "load",
+        "evidence",
+        "match",
+        "extraction",
+        "assemble",
+        "draft_saved",
+        "approval_wait",
+        "review_saved",
+        "approved",
+        "client_snapshot",
+        "finalize",
+        "files",
+        "completed"
+      ],
+      "sameMsTieReordered": true,
+      "timings": {
+        "perStage": {
+          "discovered": 0,
+          "queued": 2,
+          "workflow_started": 1035,
+          "load": 1,
+          "evidence": 13,
+          "match": 2,
+          "extraction": 4,
+          "assemble": 6,
+          "draft_saved": 4,
+          "approval_wait": 3,
+          "review_saved": 43,
+          "approved": 11,
+          "client_snapshot": 11,
+          "finalize": 2,
+          "files": 0,
+          "completed": 1
+        },
+        "evidenceMs": 3,
+        "extractionMs": 2,
+        "queuedToDraftMs": 1065,
+        "approvedToCompletedMs": 14
+      },
+      "runEventLeaks": 0,
+      "totalMs": 6328,
+      "result": "PASS",
+      "failures": []
+    },
+    {
+      "id": "pii-in-transcript",
+      "serviceCode": "CA-SDP 334 (hour)",
+      "startVisitMs": 11,
+      "visitId": "visit_d585500b32004ac1b64da01e8e202336",
+      "stream": {
+        "openToReadyMs": 3,
+        "streamMs": 3959,
+        "finals": 5,
+        "interims": 92,
+        "lastStats": {
+          "type": "stats",
+          "packets": 3500,
+          "lostPackets": 0
+        },
+        "end": {
+          "type": "done",
+          "segmentCount": 5
+        }
+      },
+      "sessionId": "sess_457643e849237557eafe75e9",
+      "visitAfterStop": {
+        "packets": 3500,
+        "lostPackets": 0,
+        "segmentCount": 5
+      },
+      "stopToProcessedMs": 1100,
+      "afterProcessing": "NEEDS_REVIEW",
+      "evidence": 5,
+      "completeness": "complete",
+      "promptVersion": "fixture-scenario-v1",
+      "warnings": [
+        "Simulated transcript (synthetic, dev only): not a real recording."
+      ],
+      "blockingAtR1": [
+        "MISSING_CONFIRMED_DURATION"
+      ],
+      "nonBlockingAtR1": [],
+      "estimateAtR1": 0,
+      "scheduledMinutesAtR1": 0,
+      "amountCents": 2475,
+      "canApproveAfterReview": true,
+      "approveHttp": 202,
+      "approveToCompletedMs": 25,
+      "final": "COMPLETED",
+      "invoicePdf": "11724 B",
+      "runId": "wf-sess_457643e849237557eafe75e9-r1",
+      "runStatus": "succeeded",
+      "runDurationMs": 1106,
+      "stagesAsStored": [
+        "discovered",
+        "queued",
+        "workflow_started",
+        "load",
+        "evidence",
+        "match",
+        "extraction",
+        "assemble",
+        "draft_saved",
+        "approval_wait",
+        "review_saved",
+        "approved",
+        "client_snapshot",
+        "finalize",
+        "completed",
+        "files"
+      ],
+      "stages": [
+        "discovered",
+        "queued",
+        "workflow_started",
+        "load",
+        "evidence",
+        "match",
+        "extraction",
+        "assemble",
+        "draft_saved",
+        "approval_wait",
+        "review_saved",
+        "approved",
+        "client_snapshot",
+        "finalize",
+        "files",
+        "completed"
+      ],
+      "sameMsTieReordered": true,
+      "timings": {
+        "perStage": {
+          "discovered": 0,
+          "queued": 1,
+          "workflow_started": 1029,
+          "load": 2,
+          "evidence": 12,
+          "match": 1,
+          "extraction": 3,
+          "assemble": 3,
+          "draft_saved": 4,
+          "approval_wait": 2,
+          "review_saved": 31,
+          "approved": 6,
+          "client_snapshot": 9,
+          "finalize": 2,
+          "files": 1,
+          "completed": 0
+        },
+        "evidenceMs": 2,
+        "extractionMs": 1,
+        "queuedToDraftMs": 1054,
+        "approvedToCompletedMs": 12
+      },
+      "runEventLeaks": 0,
+      "totalMs": 5128,
+      "result": "PASS",
+      "failures": []
+    },
+    {
+      "id": "empty-recording",
+      "serviceCode": "CA-SDP 320 (hour)",
+      "startVisitMs": 5,
+      "visitId": "visit_7f05e5db803049fd90db7637d6336fdf",
+      "stream": {
+        "openToReadyMs": 3,
+        "streamMs": 229,
+        "finals": 0,
+        "interims": 0,
+        "lastStats": {
+          "type": "stats",
+          "packets": 200,
+          "lostPackets": 0
+        },
+        "end": {
+          "type": "done",
+          "segmentCount": 0
+        }
+      },
+      "sessionId": "sess_c2b37cc3213a017ce7da53c5",
+      "visitAfterStop": {
+        "packets": 200,
+        "lostPackets": 0,
+        "segmentCount": 0
+      },
+      "stopToProcessedMs": 1123,
+      "afterProcessing": "NO_EVIDENCE",
+      "evidence": 0,
+      "amountCents": null,
+      "final": "NO_EVIDENCE",
+      "runId": "wf-sess_c2b37cc3213a017ce7da53c5-r1",
+      "runStatus": "failed",
+      "runDurationMs": 1044,
+      "stagesAsStored": [
+        "discovered",
+        "queued",
+        "workflow_started",
+        "load",
+        "evidence",
+        "failed"
+      ],
+      "stages": [
+        "discovered",
+        "queued",
+        "workflow_started",
+        "load",
+        "evidence",
+        "failed"
+      ],
+      "sameMsTieReordered": false,
+      "timings": {
+        "perStage": {
+          "discovered": 0,
+          "queued": 1,
+          "workflow_started": 1025,
+          "load": 2,
+          "evidence": 15,
+          "failed": 1
+        },
+        "evidenceMs": 2,
+        "extractionMs": null,
+        "queuedToDraftMs": null,
+        "approvedToCompletedMs": null
+      },
+      "runEventLeaks": 0,
+      "totalMs": 1369,
+      "result": "PASS",
+      "failures": []
+    }
+  ],
+  "aggregates": {
+    "stageMsToReach": {
+      "discovered": {
+        "p50": 0,
+        "max": 0,
+        "n": 8
+      },
+      "queued": {
+        "p50": 1,
+        "max": 2,
+        "n": 8
+      },
+      "workflow_started": {
+        "p50": 1026,
+        "max": 1035,
+        "n": 8
+      },
+      "load": {
+        "p50": 1,
+        "max": 3,
+        "n": 8
+      },
+      "evidence": {
+        "p50": 12,
+        "max": 18,
+        "n": 8
+      },
+      "match": {
+        "p50": 2,
+        "max": 3,
+        "n": 7
+      },
+      "extraction": {
+        "p50": 3,
+        "max": 4,
+        "n": 7
+      },
+      "assemble": {
+        "p50": 3,
+        "max": 6,
+        "n": 7
+      },
+      "draft_saved": {
+        "p50": 3,
+        "max": 4,
+        "n": 7
+      },
+      "approval_wait": {
+        "p50": 3,
+        "max": 4,
+        "n": 7
+      },
+      "review_saved": {
+        "p50": 49,
+        "max": 73,
+        "n": 7
+      },
+      "approved": {
+        "p50": 6,
+        "max": 11,
+        "n": 7
+      },
+      "client_snapshot": {
+        "p50": 10,
+        "max": 12,
+        "n": 7
+      },
+      "finalize": {
+        "p50": 2,
+        "max": 3,
+        "n": 7
+      },
+      "files": {
+        "p50": 1,
+        "max": 1,
+        "n": 7
+      },
+      "completed": {
+        "p50": 0,
+        "max": 1,
+        "n": 7
+      },
+      "failed": {
+        "p50": 1,
+        "max": 1,
+        "n": 1
+      }
+    },
+    "evidenceMs": {
+      "p50": 2,
+      "max": 4
+    },
+    "extractionMs": {
+      "p50": 1,
+      "max": 2
+    },
+    "queuedToDraftMs": {
+      "p50": 1047,
+      "max": 1065
+    },
+    "approvedToCompletedMs": {
+      "p50": 14,
+      "max": 15
+    },
+    "clientStopToProcessedMs": {
+      "p50": 1123,
+      "max": 1135
+    },
+    "clientApproveToCompletedMs": {
+      "p50": 28,
+      "max": 32
+    }
+  },
+  "pass": 8,
+  "fail": 0,
+  "note": "Full run 2026-11-14 12:46:47–12:48:33 PST; reconnect-mid-visit re-run alone at 12:49:09 PST after its first attempt stuck in QUEUED."
+}
