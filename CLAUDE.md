@@ -2,7 +2,7 @@
 
 Turns evidence from a field visit (transcript) into a session note, progress record, plan coverage, checks, time summary and a draft invoice. **AI proposes → evidence supports → rules validate → a human approves.** Nothing is billed or sent: email is draft-only, the user presses Send.
 
-Demo with synthetic data only (client `C-104`, provider `provider_demo_001`). Evidence comes from fixtures, or from a **Vexo Open band** recording (Bluetooth wristband mic → Deepgram, or a simulated transcript in dev). The iPhone bridge is GlassCam (`~/Desktop/megent`, a separate project).
+Synthetic demo data only. **Flow:** Vexo band → GlassCam iPhone app (records only, no client) → Worker → Deepgram → **calendar split** (demo calendar/Drive) → one session per appointment → draft (OpenAI gpt-4.1 or rule-based demo drafter) → checklist + invoice → review chat → human approves. Live: `https://field-assist.prakashacharya.com` (AUTH_MODE public, owner's choice). Current state + open work: `docs/status.md`.
 
 ## Stack
 One Cloudflare Worker: Hono API, cron, queue consumer and `SessionWorkflow`, with D1 and static assets. React 18 + Vite SPA (hash routes, framer-motion, lucide-react). zod contracts. vitest + Miniflare D1. pdf-lib. wrangler 4.86. npm.
@@ -38,12 +38,17 @@ Dev login: `demo.provider@example.invalid` (an empty DB auto-seeds). Review → 
 | Band visits (Vexo band → Deepgram via Worker proxy → evidence) | `src/band/`, `src/api/visits.ts`, UI `#/visit`; protocol `docs/band-bridge.md` |
 | Paired phones (one revocable key) + device API | `src/devices/`, `src/api/device*.ts`, Settings → Devices |
 | Offline recordings (VXREC1 upload → R2 → Deepgram pre-recorded → segments) | `src/offline/`, `src/api/offline-visits.ts`, `docs/offline-recording.md` |
+| Recordings (client-less) + calendar split + content suggestions | `src/recordings/`, `src/api/recordings.ts`, `docs/recordings.md` |
+| Calendar + Drive sources (demo now, Google later) | `src/schedule/`, `fixtures/schedule/` |
+| Drafting (Drive context, demo drafter), checklist, invoice | `src/drafting/`, `src/domain/rules/checklist.ts`, `src/domain/billing/invoice.ts` |
+| Review assistant chat (proposals only) | `src/assistant/`, `src/api/assistant.ts`, `src/ui/components/review-chat/` |
+| AI evals (`npm run eval:ai`) | `evals/`, `docs/ai-evaluation.md` |
 | iPhone app (GlassCam, separate project, no git) | `~/Desktop/megent/GlassCam/GlassCam/Band/` — band BLE, visits, USB relay |
 | USB bridge (phone ↔ Mac over cable) | `scripts/band/usb-bridge.mjs`, `docs/usb-bridge.md` |
 | UI | `src/ui/` (`pages/`, `components/`, `design/`, `api.ts`) |
 | Tests | `src/**/*.test.ts`, `tests/integration/`, harnesses in `tests/e2e/` |
 
-More detail: `docs/architecture.md` · band/bridge: `docs/band-bridge.md` · run/deploy: `docs/runbook.md` · OAuth/AI keys: `docs/integrations.md` · demo script: `docs/demo.md` · security: `docs/security-review.md` · original spec: `astro_handoff.md`.
+Roadmap: `docs/roadmap.md` · more detail: `docs/architecture.md` · band/bridge: `docs/band-bridge.md` · run/deploy: `docs/runbook.md` · OAuth/AI keys: `docs/integrations.md` · demo script: `docs/demo.md` · security: `docs/security-review.md` · original spec: `astro_handoff.md`.
 
 ## Invariants (don't break)
 - **Server is authoritative.** Amounts, rates and blockers are computed server-side. Request bodies are `.strict()` and never carry provider ids or amounts.
