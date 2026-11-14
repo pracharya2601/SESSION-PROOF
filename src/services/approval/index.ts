@@ -97,8 +97,24 @@ export async function saveReview(
   if (req.edits.confirmedMinutes !== undefined) fresh.push(mk("duration", String(req.edits.confirmedMinutes)));
   if (req.edits.participantDirected !== undefined) fresh.push(mk("participant_direction", req.edits.participantDirected ? "yes" : "no"));
   if (req.edits.participantChoices !== undefined) fresh.push(mk("participant_choices", req.edits.participantChoices));
+  if (req.edits.activitySummary !== undefined) fresh.push(mk("activity_summary", req.edits.activitySummary));
 
-  const superseded = new Set(fresh.map((a) => a.field));
+  const superseded = new Set<ProviderAttestation["field"]>(fresh.map((a) => a.field));
+  if (req.edits.goalsAddressed !== undefined) {
+    // Strict: only goal ids from this session's frozen plan. One attestation per confirmed goal;
+    // the list replaces any earlier confirmation ([] clears it).
+    const planGoals = new Set(current.config.plan.goals.map((g) => g.goalId));
+    const unknown = req.edits.goalsAddressed.filter((id) => !planGoals.has(id));
+    if (unknown.length > 0) {
+      throw new ServiceError(422, "UNKNOWN_GOAL", "goalsAddressed may only contain goal ids from this session's plan.", false, {
+        unknownGoalIds: unknown.slice(0, 20),
+      });
+    }
+    superseded.add("goal_addressed");
+    req.edits.goalsAddressed.forEach((goalId, i) =>
+      fresh.push({ ...mk("goal_addressed", goalId), id: `att-${sessionId}-r${newRev}-goal_addressed-${i + 1}` }),
+    );
+  }
   const attestations = [...current.attestations.filter((a) => !superseded.has(a.field)), ...fresh];
 
   // Duration must also respect the frozen rate's own maximum (may be < schema max).

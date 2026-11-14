@@ -6,6 +6,7 @@
  *   GET  /api/visits/capture-status   → CaptureStatus
  *   GET  /api/visits                  → Visit[] (the actor's, newest first)
  *   POST /api/visits                  StartVisitRequest → 201 StartVisitResponse
+ *                                     (transcriber "device" → visit.transcriber "device"; else the server's choice)
  *   GET  /api/visits/:id              → VisitDetail
  *   GET  /api/visits/:id/status       → { visit } (cookie, or ?token= for a phone bridge)
  *   POST /api/visits/:id/stop         → StopVisitResponse (hands the visit to processing; cookie, or ?token=)
@@ -14,7 +15,8 @@
  * The token routes (stream, and stop/status with ?token=) are mounted before
  * requireActor (a bridge has no cookie) and authenticate themselves. POST still
  * passes the global originGuard, so a bridge sends `Origin: <scheme://host:port>`
- * of the URL it calls. Audio is never stored.
+ * of the URL it calls. Audio is never stored. A paired device uses the same start/stop/detail
+ * logic through src/api/device.ts (startVisitAs, stopVisitAs, visitDetailAs).
  */
 import { Hono, type Context, type MiddlewareHandler } from "hono";
 import {
@@ -102,10 +104,87 @@ function wsOrigin(deps: ApiDeps, c: Context<AppBindings>): string {
 }
 
 /**
+ * Start a visit for one provider. Shared by the cookie route (POST /api/visits) and the
+ * device-key route (POST /api/device/visits), so both behave identically.
+ * `req.transcriber === "device"`: the phone transcribes; no server transcriber is needed.
+ */
+export async function startVisitAs(deps: ApiDeps, c: Context<AppBindings>, providerId: string, req: StartVisitRequest) {
+  const v = deps.visits;
+  if (!v) return unavailable(c);
+  let transcriber: Transcriber;
+  if (req.transcriber === "device") {
+    if (req.scenario) {
+      return apiError(c, 400, "SCENARIO_DEV_ONLY", "Synthetic scenarios only run with the simulated transcriber in local dev.", false);
+    }
+    transcriber = "device";
+  } else {
+    const status = captureStatus(deps.env);
+    if (!status.transcriber) return apiError(c, 503, "TRANSCRIPTION_NOT_CONFIGURED", status.reason ?? "Unavailable", false);
+    transcriber = status.transcriber;
+    if (req.scenario && (transcriber !== "simulated" || deps.env.RUNTIME_MODE === "deployed")) {
+      return apiError(c, 400, "SCENARIO_DEV_ONLY", "Synthetic scenarios only run with the simulated transcriber in local dev.", false);
+    }
+    if (req.scenario) {
+      await scenarioLookupReady();
+      const lookup = getScenarioLookup();
+      // No lookup registered (e.g. tests without fixtures) → let the stream open decide.
+      if (lookup && !lookup(req.scenario)) {
+        return apiError(c, 400, "UNKNOWN_SCENARIO", `Unknown scenario "${req.scenario}".`, false);
+      }
+    }
+  }
+  const template = await v.store.latestAppointmentForClient(providerId, req.clientRef);
+  if (!template) {
+    return apiError(c, 422, "NO_SERVICE_PLAN", "This client has no service plan on file yet (no earlier appointment to copy it from).", false);
+  }
+  const secret = deps.env.SESSION_SECRET;
+  if (!secret) return apiError(c, 503, "AUTH_NOT_CONFIGURED", "SESSION_SECRET is not configured.", false);
+  const now = deps.clock.now();
+  const id = crypto.randomUUID().replace(/-/g, "");
+  const appointmentId = `${VISIT_APPOINTMENT_PREFIX}${id}`;
+  const appointment = Appointment.parse({
+    ...template,
+    id: appointmentId,
+    occurrenceId: appointmentId,
+    startAt: now.toISOString(),
+    endAt: new Date(now.getTime() + OPEN_VISIT_HOURS * 3600_000).toISOString(),
+    timezone: req.timezone ?? template.timezone,
+    canceled: false,
+  });
+  const visit = await v.store.createVisit({
+    id: `visit_${id}`,
+    providerId,
+    appointment,
+    bandNumber: req.bandNumber,
+    transport: req.transport,
+    transcriber,
+    startedAt: now.toISOString(),
+    scenario: req.scenario ?? null,
+  });
+  const t = await signStreamToken({ providerId, visitId: visit.id, nowMs: now.getTime() }, secret);
+  const res: StartVisitResponse = {
+    visit,
+    streamUrl: `${wsOrigin(deps, c)}/api/visits/${encodeURIComponent(visit.id)}/stream?token=${encodeURIComponent(t.token)}`,
+    streamTokenExpiresAt: t.expiresAt,
+  };
+  return ok(c, res, 201);
+}
+
+/** Visit + its segments, only when it is the provider's (404 otherwise). */
+export async function visitDetailAs(deps: ApiDeps, c: Context<AppBindings>, providerId: string, visitId: string) {
+  const v = deps.visits;
+  if (!v) return unavailable(c);
+  const visit = await v.store.getVisit(providerId, visitId);
+  if (!visit) return apiError(c, 404, "NOT_FOUND", "Visit not found", false);
+  const res: VisitDetail = { visit, segments: await v.store.listSegments(visit.id) };
+  return ok(c, res);
+}
+
+/**
  * Stop a visit (idempotent) and hand it to processing. Shared by the cookie route and the
  * token route (phone bridge), so both behave identically.
  */
-async function stopVisitAs(deps: ApiDeps, c: Context<AppBindings>, providerId: string, visitId: string) {
+export async function stopVisitAs(deps: ApiDeps, c: Context<AppBindings>, providerId: string, visitId: string) {
   const v = deps.visits;
   if (!v) return unavailable(c);
   const stopped = await v.store.stopVisit(providerId, visitId, deps.clock.now().toISOString());
@@ -153,70 +232,12 @@ export function visitsRoutes(deps: ApiDeps): Hono<AppBindings> {
   });
 
   app.post("/api/visits", async (c) => {
-    const v = deps.visits;
-    if (!v) return unavailable(c);
-    const actor = c.get("actor");
     const body = StartVisitRequest.safeParse(await c.req.json().catch(() => null));
     if (!body.success) return apiError(c, 400, "VALIDATION", body.error.issues.map((i) => i.message).join("; "), false);
-    const status = captureStatus(deps.env);
-    if (!status.transcriber) return apiError(c, 503, "TRANSCRIPTION_NOT_CONFIGURED", status.reason ?? "Unavailable", false);
-
-    if (body.data.scenario && (status.transcriber !== "simulated" || deps.env.RUNTIME_MODE === "deployed")) {
-      return apiError(c, 400, "SCENARIO_DEV_ONLY", "Synthetic scenarios only run with the simulated transcriber in local dev.", false);
-    }
-    if (body.data.scenario) {
-      await scenarioLookupReady();
-      const lookup = getScenarioLookup();
-      // No lookup registered (e.g. tests without fixtures) → let the stream open decide.
-      if (lookup && !lookup(body.data.scenario)) {
-        return apiError(c, 400, "UNKNOWN_SCENARIO", `Unknown scenario "${body.data.scenario}".`, false);
-      }
-    }
-    const template = await v.store.latestAppointmentForClient(actor.providerId, body.data.clientRef);
-    if (!template) {
-      return apiError(c, 422, "NO_SERVICE_PLAN", "This client has no service plan on file yet (no earlier appointment to copy it from).", false);
-    }
-    const now = deps.clock.now();
-    const id = crypto.randomUUID().replace(/-/g, "");
-    const appointmentId = `${VISIT_APPOINTMENT_PREFIX}${id}`;
-    const appointment = Appointment.parse({
-      ...template,
-      id: appointmentId,
-      occurrenceId: appointmentId,
-      startAt: now.toISOString(),
-      endAt: new Date(now.getTime() + OPEN_VISIT_HOURS * 3600_000).toISOString(),
-      timezone: body.data.timezone ?? template.timezone,
-      canceled: false,
-    });
-    const visit = await v.store.createVisit({
-      id: `visit_${id}`,
-      providerId: actor.providerId,
-      appointment,
-      bandNumber: body.data.bandNumber,
-      transport: body.data.transport,
-      transcriber: status.transcriber,
-      startedAt: now.toISOString(),
-      scenario: body.data.scenario ?? null,
-    });
-    const secret = deps.env.SESSION_SECRET;
-    if (!secret) return apiError(c, 503, "AUTH_NOT_CONFIGURED", "SESSION_SECRET is not configured.", false);
-    const t = await signStreamToken({ providerId: actor.providerId, visitId: visit.id, nowMs: now.getTime() }, secret);
-    const res: StartVisitResponse = {
-      visit,
-      streamUrl: `${wsOrigin(deps, c)}/api/visits/${encodeURIComponent(visit.id)}/stream?token=${encodeURIComponent(t.token)}`,
-      streamTokenExpiresAt: t.expiresAt,
-    };
-    return ok(c, res, 201);
+    return startVisitAs(deps, c, c.get("actor").providerId, body.data);
   });
 
-  app.get("/api/visits/:id", async (c) => {
-    const v = deps.visits;
-    if (!v) return unavailable(c);
-    const visit = await v.store.getVisit(c.get("actor").providerId, c.req.param("id"));
-    if (!visit) return apiError(c, 404, "NOT_FOUND", "Visit not found", false);
-    const res: VisitDetail = { visit, segments: await v.store.listSegments(visit.id) };
-    return ok(c, res);
-  });
+  app.get("/api/visits/:id", (c) => visitDetailAs(deps, c, c.get("actor").providerId, c.req.param("id")));
 
   app.get("/api/visits/:id/status", (c) => visitStatusAs(deps, c, c.get("actor").providerId, c.req.param("id")));
 

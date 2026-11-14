@@ -26,7 +26,9 @@ export function PlanCoverage(props: { entries: PlanCoverageEntry[] }) {
         </span>
       }
     >
-      <p className="rv-muted rv-small">Goal coverage reflects the evidence; it is not a documentation check.</p>
+      <p className="rv-muted rv-small">
+        Goal coverage reflects the evidence (or your confirmation, labelled provider confirmed); it is not a documentation check.
+      </p>
       <LayoutGroup id="rv-coverage">
         <ul className="rv-cov-list">
           {props.entries.map((g) => {
@@ -43,6 +45,7 @@ export function PlanCoverage(props: { entries: PlanCoverageEntry[] }) {
                 >
                   <Icon size={13} aria-hidden="true" />
                   {coverageLabel(g.status)}
+                  {g.support === "provider_confirmed" ? " (provider confirmed)" : ""}
                 </motion.span>
                 <motion.span layout={ok ? "position" : false} className="rv-cov-text">
                   {g.objective}

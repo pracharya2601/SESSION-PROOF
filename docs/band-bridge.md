@@ -84,6 +84,38 @@ Without `?token=`, these paths fall through to the normal cookie routes. `GET /a
 
 Recommended phone flow: send `{"type":"stop"}` on the socket and wait for `done` (this flushes the transcriber). Then call `POST …/stop?token=` to hand the visit to processing. The web page notices within 3 s and opens the session.
 
+## Paired devices
+A phone (GlassCam) is paired **once** with a long-lived device key. It can then list the provider's clients and start, follow and stop band visits on its own, with no web page open, until the provider removes it. Contract (frozen): `src/contracts/devices.ts`. Code: `src/devices/` (key, store, auth), `src/api/device.ts` (device API), `src/api/devices.ts` (web management), UI **Settings → Devices** (`src/ui/components/settings/DevicesSection.tsx`). Table: `paired_devices` (`migrations/0008_devices.sql`).
+
+### Pairing (web, signed in)
+**Settings → Devices** → name the phone → **Pair a phone**. The page calls `POST /api/devices` `{ name }` and shows a QR code, **Copy link** and **Show link** for:
+```
+glasscam://pair?server=<origin>&key=<device key>&name=<encodeURIComponent(name)>
+```
+- `key`: `vfad_` + 43 base64url chars (32 random bytes). It is returned **once**. The server stores only `SHA-256(key)` (hex, `key_hash`), never the key. It works until the device is removed. **Never log it.**
+- `server`: the http(s) origin the phone calls, inserted as is (no path). It is `PUBLIC_APP_ORIGIN` when set (e.g. `http://192.168.1.20:8787` on the LAN, or the deployed `https://…`), else `PUBLIC_STREAM_ORIGIN` with `ws:`→`http:` / `wss:`→`https:`, else `APP_ORIGIN`. When it is localhost the page warns that the phone can't reach it (set one of those vars, then remove and re-pair).
+- `name`: the label the provider typed (1 to 60 chars), percent-encoded.
+- At most 10 active devices per provider (`409 TOO_MANY_DEVICES`). **Remove** revokes a device (confirm dialog); its key fails at once with `401 DEVICE_REVOKED`.
+
+| Web (cookie) | Response |
+|---|---|
+| `GET /api/devices` | `PairedDevice[]` `{ id, providerId, name, createdAt, lastSeenAt, revokedAt }`: never a key or hash |
+| `POST /api/devices` `{ name }` | `201 { device, key, pairingLink }` (once) |
+| `DELETE /api/devices/:id` | `{ revoked: true }` (idempotent; another provider's device is 404) |
+
+### Device API (bearer key, no cookie)
+Every request sends `Authorization: Bearer vfad_…`. **No `Origin` header is needed**: the origin guard skips `/api/device/*` when that bearer header is present (bearer auth is not CSRF-able). Without it, POSTs there are still `403 ORIGIN_REJECTED`. Everything is scoped to the device's provider: another provider's visit is `404`. `lastSeenAt` is updated at most once a minute.
+
+| Request | Response |
+|---|---|
+| `GET /api/device/me` | `{ device, provider: { id, identity }, transcribers }`. `transcribers` = what this server can run: the server's choice (`deepgram`, or `simulated` in local dev) first when available, then `device` (always accepted) |
+| `GET /api/device/clients` | `[{ clientRef, displayName, preferredName }]`: active stored clients, plus client refs with a non-band appointment and no stored record. Names are for the provider's own phone only |
+| `POST /api/device/visits` `{ clientRef, bandNumber: 1..999\|null, transport, timezone?, transcriber?: "server"\|"device" }` | `201 { visit, streamUrl, streamTokenExpiresAt }`, the same as `POST /api/visits` (service plan from the client's last appointment, `422 NO_SERVICE_PLAN`, `PUBLIC_STREAM_ORIGIN`). Default `transcriber: "server"`: the phone only records and streams audio, the Worker transcribes (Deepgram; simulated in local dev without a key; deployed without a key → `503 TRANSCRIPTION_NOT_CONFIGURED`). `"device"`: on-phone transcription, `visit.transcriber = "device"` (optional path) |
+| `GET /api/device/visits/:id` | `{ visit, segments }` |
+| `POST /api/device/visits/:id/stop` | `{ visit, sessionId }` (idempotent, same logic as the cookie route) |
+
+Errors: missing/malformed/unknown key → `401 UNAUTHENTICATED`; removed device → `401 DEVICE_REVOKED` (GlassCam should forget the pairing and ask to pair again). Streaming still uses the returned `streamUrl` (section 2). `POST /api/visits` (cookie) also accepts `transcriber: "device"`.
+
 ## Transcribers
 | | When | Evidence label |
 |---|---|---|

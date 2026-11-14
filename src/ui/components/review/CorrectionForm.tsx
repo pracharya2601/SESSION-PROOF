@@ -11,6 +11,14 @@ const MAX_CONFIRMED_MINUTES = 720;
 /** Mirrors ReviewEdits.participantChoices max length. */
 export const MAX_PARTICIPANT_CHOICES = 1000;
 
+/** Mirrors ReviewEdits.activitySummary max length. */
+export const MAX_ACTIVITY_SUMMARY = 2000;
+
+/** Checkbox group id (ApprovalChecklist jumps here for goal_addressed). */
+export const GOALS_GROUP_ID = "rv-goals";
+/** Activity summary textarea id (ApprovalChecklist jumps here for service_description). */
+export const SUMMARY_ID = "rv-summary";
+
 /** "unset" = not recorded (participantDirected undefined). */
 export type DirectedValue = "unset" | "yes" | "no";
 
@@ -20,6 +28,15 @@ export interface CorrectionValues {
   /** v3 participant direction; optional so older callers keep working. */
   directed?: DirectedValue;
   choices?: string;
+  /** Plan goal ids the provider confirms were addressed; undefined = unchanged. */
+  goals?: string[];
+  /** Provider-written activity summary. */
+  summary?: string;
+}
+
+export interface PlanGoalOption {
+  goalId: string;
+  objective: string;
 }
 
 const DIRECTED_OPTIONS: { value: DirectedValue; label: string }[] = [
@@ -82,7 +99,21 @@ export function CorrectionForm(props: {
   /** Existing attested participant direction / choices (from the bundle's attestations). */
   currentDirected?: DirectedValue;
   currentChoices?: string | null;
+  /** The session's plan goals (frozen config) and the provider's existing confirmations. */
+  goals?: PlanGoalOption[];
+  currentGoals?: string[];
+  currentSummary?: string | null;
 }) {
+  const goalOptions = props.goals ?? [];
+  const checkedGoals = props.values.goals ?? props.currentGoals ?? [];
+  const summary = props.values.summary ?? "";
+  const summaryTooLong = summary.length > MAX_ACTIVITY_SUMMARY;
+  const summaryCleared = summary.trim() === "" && !!props.currentSummary;
+  const toggleGoal = (id: string, on: boolean) => {
+    const next = on ? [...checkedGoals, id] : checkedGoals.filter((g) => g !== id);
+    // Keep plan order so "unchanged" compares cleanly.
+    props.onChange({ ...props.values, goals: goalOptions.map((g) => g.goalId).filter((g) => next.includes(g)) });
+  };
   const directed = props.values.directed ?? props.currentDirected ?? "unset";
   const choices = props.values.choices ?? "";
   const choicesTooLong = choices.length > MAX_PARTICIPANT_CHOICES;
@@ -91,7 +122,7 @@ export function CorrectionForm(props: {
   const choicesCleared = choices.trim() === "" && !!props.currentChoices;
   const minutesError = validateMinutes(props.values.minutes);
   const progressTooLong = props.values.progress.length > 2000;
-  const canSave = props.dirty && !props.saving && !minutesError && !progressTooLong && !choicesTooLong;
+  const canSave = props.dirty && !props.saving && !minutesError && !progressTooLong && !choicesTooLong && !summaryTooLong;
   return (
     <Section label="Corrections" title="Provider corrections" icon={<PencilLine size={18} />} className="rv-form">
       <form
@@ -101,6 +132,49 @@ export function CorrectionForm(props: {
           if (canSave) props.onSave();
         }}
       >
+        {goalOptions.length > 0 && (
+          <fieldset className="rv-pd" id={GOALS_GROUP_ID} tabIndex={-1} aria-describedby="rv-goals-hint">
+            <legend className="rv-pd-legend">Plan goals</legend>
+            <div style={{ display: "grid", gap: 6 }}>
+              {goalOptions.map((g) => (
+                <label key={g.goalId} className="rv-small" style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+                  <input
+                    type="checkbox"
+                    checked={checkedGoals.includes(g.goalId)}
+                    onChange={(e) => toggleGoal(g.goalId, e.target.checked)}
+                    style={{ marginTop: 3 }}
+                  />
+                  <span>
+                    <strong>{g.objective}</strong>
+                    <span className="rv-muted"> — Addressed in this visit (I confirm)</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+            <p id="rv-goals-hint" className="rv-muted rv-small rv-pd-hint">
+              Recorded as your confirmation, shown as &ldquo;provider confirmed&rdquo; — never as transcript evidence.
+            </p>
+          </fieldset>
+        )}
+        <Field
+          id={SUMMARY_ID}
+          label="Activity summary"
+          error={summaryTooLong ? <span role="alert">Keep it to {MAX_ACTIVITY_SUMMARY} characters.</span> : undefined}
+          hint={
+            <>
+              Optional. What you did in the visit, in your own words; shown on the session note as provider written (
+              {summary.length}/{MAX_ACTIVITY_SUMMARY}).
+              {summaryCleared ? " An existing summary cannot be removed, only replaced." : ""}
+            </>
+          }
+        >
+          <Textarea
+            rows={3}
+            maxLength={MAX_ACTIVITY_SUMMARY}
+            value={summary}
+            onChange={(e) => props.onChange({ ...props.values, summary: e.target.value })}
+          />
+        </Field>
         <Field
           id="rv-progress"
           label="Progress confirmation"

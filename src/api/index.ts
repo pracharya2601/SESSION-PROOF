@@ -17,6 +17,9 @@ import { templatesRoutes } from "./templates";
 import { documentsRoutes } from "./documents";
 import { runsRoutes } from "./runs";
 import { visitsRoutes, visitStreamRoutes } from "./visits";
+import { deviceRoutes } from "./device";
+import { devicesRoutes } from "./devices";
+import { hasDeviceBearer } from "../devices";
 
 export { ok } from "./respond";
 export { healthRoutes } from "./health";
@@ -33,12 +36,19 @@ export function createApi(deps: ApiDeps): Hono<AppBindings> {
     await next();
     if (!c.res.headers.has("Cache-Control")) c.res.headers.set("Cache-Control", "no-store");
   });
-  app.use("*", originGuard(deps));
+  // CSRF guard. Exception: the device API with `Authorization: Bearer vfad_…` (a native app;
+  // bearer auth is not CSRF-able). Without that header /api/device/* is guarded like the rest.
+  const guard = originGuard(deps);
+  app.use("*", (c, next) =>
+    c.req.path.startsWith("/api/device/") && hasDeviceBearer(c.req.header("Authorization")) ? next() : guard(c, next),
+  );
 
   app.route("/", authRoutes(deps));
   app.route("/", healthRoutes(deps));
   // Band audio stream: authenticates itself (stream token for native bridges, or cookie + Origin).
   app.route("/", visitStreamRoutes(deps));
+  // Paired-device API (GlassCam): device-key bearer auth, no cookie.
+  app.route("/", deviceRoutes(deps));
 
   app.use("/api/*", requireActor(deps));
 
@@ -61,6 +71,8 @@ export function createApi(deps: ApiDeps): Hono<AppBindings> {
   app.route("/", runsRoutes(deps));
   // Band visits: record a visit with a Vexo band; the transcript becomes the session evidence.
   app.route("/", visitsRoutes(deps));
+  // Paired devices: pair / list / revoke (Settings → Devices).
+  app.route("/", devicesRoutes(deps));
 
   app.notFound((c) => {
     const cid = c.get("correlationId") ?? "";

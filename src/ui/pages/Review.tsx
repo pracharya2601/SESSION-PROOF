@@ -13,6 +13,7 @@ import { TimePanel } from "../components/review/TimePanel";
 import { BillingPanel } from "../components/review/BillingPanel";
 import {
   CorrectionForm,
+  MAX_ACTIVITY_SUMMARY,
   MAX_PARTICIPANT_CHOICES,
   validateMinutes,
   type CorrectionValues,
@@ -88,7 +89,10 @@ function getOrCreateIdemKey(cache: Map<string, string>, sessionId: string, revis
 }
 
 /** Latest provider attestation text for a field (participant_direction / participant_choices). */
-function latestAttestation(bundle: SessionBundle | null, field: "participant_direction" | "participant_choices"): string | null {
+function latestAttestation(
+  bundle: SessionBundle | null,
+  field: "participant_direction" | "participant_choices" | "activity_summary",
+): string | null {
   let best: { text: string; at: string } | null = null;
   for (const a of bundle?.attestations ?? []) {
     if (a.field !== field) continue;
@@ -104,6 +108,14 @@ function attestedDirected(bundle: SessionBundle | null): DirectedValue {
   return "unset";
 }
 
+/** Plan goal ids the provider has confirmed as addressed (goal_addressed attestations), in plan order. */
+function confirmedGoals(bundle: SessionBundle | null): string[] {
+  const ids = new Set((bundle?.attestations ?? []).filter((a) => a.field === "goal_addressed").map((a) => a.text.trim()));
+  return (bundle?.config.plan.goals ?? []).map((g) => g.goalId).filter((id) => ids.has(id));
+}
+
+const sameIds = (a: string[], b: string[]) => a.length === b.length && a.every((x) => b.includes(x));
+
 function initialValues(bundle: SessionBundle | null): CorrectionValues {
   // Never prefill from the schedule: only an existing provider-confirmed value.
   const c = bundle?.documents.timeSummary.confirmedMinutes ?? null;
@@ -112,6 +124,8 @@ function initialValues(bundle: SessionBundle | null): CorrectionValues {
     minutes: c !== null ? String(c) : "",
     directed: attestedDirected(bundle),
     choices: latestAttestation(bundle, "participant_choices") ?? "",
+    goals: confirmedGoals(bundle),
+    summary: latestAttestation(bundle, "activity_summary") ?? "",
   };
 }
 
@@ -235,8 +249,24 @@ export default function Review(props: { sessionId: string; onBack: () => void })
   const choicesTrim = (values.choices ?? "").trim();
   const choicesChanged = choicesTrim !== "" && choicesTrim !== (currentChoices ?? "").trim();
   const choicesCleared = choicesTrim === "" && !!currentChoices;
+  const currentGoals = confirmedGoals(bundle);
+  const goalsValue = values.goals ?? currentGoals;
+  const goalsChanged = !sameIds(goalsValue, currentGoals);
+  const currentSummary = latestAttestation(bundle, "activity_summary");
+  const summaryTrim = (values.summary ?? "").trim();
+  const summaryChanged = summaryTrim !== "" && summaryTrim !== (currentSummary ?? "").trim();
+  const summaryCleared = summaryTrim === "" && !!currentSummary;
   const dirty =
-    progressChanged || minutesChanged || minutesCleared || directedChanged || directedCleared || choicesChanged || choicesCleared;
+    progressChanged ||
+    minutesChanged ||
+    minutesCleared ||
+    directedChanged ||
+    directedCleared ||
+    choicesChanged ||
+    choicesCleared ||
+    goalsChanged ||
+    summaryChanged ||
+    summaryCleared;
 
   function buildEdits(): ReviewEdits | null {
     const edits: {
@@ -244,11 +274,15 @@ export default function Review(props: { sessionId: string; onBack: () => void })
       progressConfirmation?: string;
       participantDirected?: boolean;
       participantChoices?: string;
+      goalsAddressed?: string[];
+      activitySummary?: string;
     } = {};
     if (minutesChanged && !validateMinutes(values.minutes)) edits.confirmedMinutes = Number(minutesTrim);
     if (progressChanged) edits.progressConfirmation = progressTrim;
     if (directedChanged) edits.participantDirected = directedValue === "yes";
     if (choicesChanged && choicesTrim.length <= MAX_PARTICIPANT_CHOICES) edits.participantChoices = choicesTrim;
+    if (goalsChanged) edits.goalsAddressed = goalsValue;
+    if (summaryChanged && summaryTrim.length <= MAX_ACTIVITY_SUMMARY) edits.activitySummary = summaryTrim;
     return Object.values(edits).some((v) => v !== undefined) ? (edits as ReviewEdits) : null;
   }
 
@@ -620,6 +654,9 @@ export default function Review(props: { sessionId: string; onBack: () => void })
                 currentConfirmed={currentConfirmed}
                 currentDirected={currentDirected}
                 currentChoices={currentChoices}
+                goals={bundle.config.plan.goals}
+                currentGoals={currentGoals}
+                currentSummary={currentSummary}
               />
             )}
             {editable && (

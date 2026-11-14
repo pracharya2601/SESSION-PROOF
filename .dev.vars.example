@@ -2,3 +2,7 @@
 SESSION_SECRET=dev-only-session-secret-change-me-0123456789
 TOKEN_ENCRYPTION_KEY=ZGV2LW9ubHktMzItYnl0ZS1lbmNyeXB0aW9uLWtleSE=
 # AI_API_KEY=sk-ant-...   (only needed when EXTRACTION_MODE=live)
+# Optional: address a paired phone can reach (LAN IP in dev, the https origin when deployed)
+# PUBLIC_APP_ORIGIN=http://192.168.1.20:8787
+# PUBLIC_STREAM_ORIGIN=ws://192.168.1.20:8787
+# DEEPGRAM_API_KEY=

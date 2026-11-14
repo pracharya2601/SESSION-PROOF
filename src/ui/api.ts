@@ -45,6 +45,9 @@ import type {
   StartVisitResponse,
   StopVisitResponse,
   VisitDetail,
+  // paired devices
+  PairDeviceResponse,
+  PairedDevice,
 } from "../contracts";
 
 /** GET /api/me — shape kept loose; the server derives identity. */
@@ -212,6 +215,12 @@ export const api = {
   getVisit: (id: string) => dataOf<VisitDetail>("GET", `/api/visits/${enc(id)}`),
   /** Call after the stream sent "done" (or closed): hands the visit to processing. */
   stopVisit: (id: string) => dataOf<StopVisitResponse>("POST", `/api/visits/${enc(id)}/stop`, {}),
+
+  // ---------------------------------------------------------------- paired devices (Settings → Devices)
+  listDevices: () => dataOf<PairedDevice[]>("GET", "/api/devices"),
+  /** The key and pairing link are returned ONCE; the server keeps only a hash. */
+  pairDevice: (name: string) => dataOf<PairDeviceResponse>("POST", "/api/devices", { name }),
+  revokeDevice: (id: string) => dataOf<{ revoked: true }>("DELETE", `/api/devices/${enc(id)}`),
 };
 
 /** Builds `?a=1&b=2` from defined, non-empty values ("" when none). */

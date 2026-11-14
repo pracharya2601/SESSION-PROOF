@@ -164,8 +164,20 @@ export type SessionFacts = z.infer<typeof SessionFacts>;
 
 export const ProviderAttestation = z.object({
   id: Id,
-  /** v3 adds participant_direction (text = "yes"/"no" + optional choices, see ReviewEdits). */
-  field: z.enum(["progress", "duration", "participant_direction", "participant_choices", "amendment_reason"]),
+  /**
+   * v3 adds participant_direction (text = "yes"/"no" + optional choices, see ReviewEdits).
+   * goal_addressed: text = one plan goal id the provider confirms was addressed (one attestation per goal).
+   * activity_summary: the provider's own summary of the visit's activities.
+   */
+  field: z.enum([
+    "progress",
+    "duration",
+    "participant_direction",
+    "participant_choices",
+    "amendment_reason",
+    "goal_addressed",
+    "activity_summary",
+  ]),
   text: ShortText,
   actorProviderId: Id,
   attestedAt: Instant,
@@ -203,6 +215,11 @@ export const PlanCoverageEntry = z.object({
   objective: ShortText,
   status: z.enum(["addressed", "partially_addressed", "unknown"]),
   claimIds: z.array(Id),
+  /**
+   * What establishes the status: "evidence" (extracted claims) or "provider_confirmed"
+   * (a goal_addressed attestation, never transcript-supported). Absent on older bundles.
+   */
+  support: z.enum(["evidence", "provider_confirmed"]).optional(),
 });
 export type PlanCoverageEntry = z.infer<typeof PlanCoverageEntry>;
 
@@ -309,6 +326,17 @@ export const ReviewEdits = z
     participantDirected: z.boolean().optional(),
     /** v3: participant's own choices / preferences, in the provider's words. */
     participantChoices: z.string().trim().min(1).max(1000).optional(),
+    /**
+     * Plan goal ids the provider confirms were addressed in this visit (replaces any earlier
+     * confirmation; [] clears it). Checked against the session's plan by the review service.
+     */
+    goalsAddressed: z
+      .array(z.string().min(1).max(128))
+      .max(20)
+      .refine((ids) => new Set(ids).size === ids.length, { message: "goalsAddressed must not repeat a goal" })
+      .optional(),
+    /** The provider's own summary of the activities, recorded as provider-written. */
+    activitySummary: z.string().trim().min(1).max(2000).optional(),
   })
   .strict()
   .refine((e) => Object.values(e).some((v) => v !== undefined), {

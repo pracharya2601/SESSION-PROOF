@@ -1,0 +1,17 @@
+/* Settings → Devices (paired phones). */
+.dv-pair { display: flex; flex-wrap: wrap; gap: var(--sp-3); align-items: flex-end; }
+.dv-pair .ds-field { flex: 1 1 220px; min-width: 0; }
+.dv-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.dv-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-3); padding: var(--sp-3) 0; border-top: 1px solid var(--border, rgba(0, 0, 0, 0.08)); }
+.dv-row:first-child { border-top: none; }
+.dv-row-main { flex: 1 1 220px; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.dv-row-name { font-weight: 600; overflow-wrap: anywhere; }
+.dv-row-meta { font-size: var(--text-xs); color: var(--muted); display: flex; flex-wrap: wrap; gap: var(--sp-3); }
+.dv-row-revoked .dv-row-name { color: var(--muted); text-decoration: line-through; }
+.dv-result { display: flex; flex-direction: column; gap: var(--sp-4); min-width: 0; }
+.dv-result-main { display: flex; flex-wrap: wrap; gap: var(--sp-4); align-items: flex-start; }
+.dv-qr { width: 220px; height: 220px; max-width: 100%; flex: none; display: grid; place-items: center; background: #fff; border-radius: 12px; border: 1px solid var(--border, rgba(0, 0, 0, 0.1)); overflow: hidden; }
+.dv-qr img { display: block; width: 100%; height: auto; image-rendering: pixelated; }
+.dv-steps { flex: 1 1 200px; min-width: 0; margin: 0; padding-left: 1.2em; display: flex; flex-direction: column; gap: var(--sp-2); font-size: var(--text-sm); color: var(--text-2); }
+.dv-actions { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+.dv-link { display: block; padding: var(--sp-2) var(--sp-3); border-radius: 8px; background: var(--surface-hover); font-size: var(--text-xs); word-break: break-all; user-select: all; }

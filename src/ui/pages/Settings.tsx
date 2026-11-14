@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { Bot, HardDrive, Mail, RefreshCw } from "lucide-react";
+import { Bot, HardDrive, Mail, RefreshCw, Smartphone } from "lucide-react";
 import type { Connection, SettingsBundle } from "../../contracts";
 import { api } from "../api";
 import { Button, Card, Dialog, ErrorNotice, PageHeader, Skeleton, TabPanel, Tabs, fadeOnly } from "../design";
@@ -8,14 +8,16 @@ import { AiTab } from "../components/settings/AiTab";
 import { EmailTab } from "../components/settings/EmailTab";
 import { StorageTab } from "../components/settings/StorageTab";
 import { SyncTab } from "../components/settings/SyncTab";
+import { DevicesSection } from "../components/settings/DevicesSection";
 import "../components/settings/u2.css";
 
-type TabKey = "sync" | "storage" | "email" | "ai";
+type TabKey = "sync" | "storage" | "email" | "ai" | "devices";
 const TABS: { id: TabKey; label: string; icon: ReactNode }[] = [
   { id: "sync", label: "Sync", icon: <RefreshCw size={15} /> },
   { id: "storage", label: "Storage", icon: <HardDrive size={15} /> },
   { id: "email", label: "Email", icon: <Mail size={15} /> },
   { id: "ai", label: "AI & Privacy", icon: <Bot size={15} /> },
+  { id: "devices", label: "Devices", icon: <Smartphone size={15} /> },
 ];
 const IDBASE = "settings";
 
@@ -70,14 +72,14 @@ export default function Settings() {
     window.history.replaceState(null, "", `${base}?tab=${next}`);
   }
 
-  const needsBundle = tab !== "sync";
+  const needsBundle = tab !== "sync" && tab !== "devices";
 
   return (
     <div className="u2-page">
       <PageHeader
         eyebrow="Workspace"
         title="Settings"
-        subtitle="Automatic sync, where your files go, email drafts, and how AI sees your data."
+        subtitle="Automatic sync, where your files go, email drafts, how AI sees your data, and your paired phones."
       />
       <div className="u2-tabs-bar">
         <Tabs
@@ -111,6 +113,8 @@ export default function Settings() {
               </Card>
             ) : tab === "sync" ? (
               <SyncTab onDirtyChange={onDirty} />
+            ) : tab === "devices" ? (
+              <DevicesSection />
             ) : tab === "storage" ? (
               <StorageTab bundle={bundle!} connections={connections} onSaved={setBundle} onDirtyChange={onDirty} />
             ) : tab === "email" ? (

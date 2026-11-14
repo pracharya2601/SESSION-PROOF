@@ -72,6 +72,12 @@ export const validateRequirements: ValidateRequirementsFn = (input: RulesInput):
     ? attestations.filter((a) => a.field === "progress" && isMeaningfulText(a.text))
     : [];
   const attestationIds = new Set(progressAttestations.map((a) => a.id));
+  // Provider goal confirmations count only for goals in this session's plan.
+  const planGoalIds = new Set(plan.goals.map((g) => g.goalId));
+  const goalAttestationIds = new Set(
+    attestations.filter((a) => a.field === "goal_addressed" && planGoalIds.has(a.text.trim())).map((a) => a.id),
+  );
+  const hasActivitySummary = attestations.some((a) => a.field === "activity_summary" && isMeaningfulText(a.text));
 
   // Supported claims citing unknown evidence are always blocking.
   const seen = new Set<string>();
@@ -104,21 +110,21 @@ export const validateRequirements: ValidateRequirementsFn = (input: RulesInput):
         ? null
         : issue(ISSUE_CODES.MISSING_CLIENT_REFERENCE, "client_reference", "The client reference is missing. Check the appointment's client reference.", true),
     service_description: () =>
-      facts.activities.some(isBackedSupported)
+      facts.activities.some(isBackedSupported) || hasActivitySummary
         ? null
         : issue(
             ISSUE_CODES.MISSING_SERVICE_DESCRIPTION,
             "service_description",
-            "No service activity is supported by the session evidence. Confirm the evidence is complete and reprocess the session.",
+            "No service activity is supported by the session evidence. Write an activity summary in your own words, or confirm the evidence is complete and reprocess the session.",
             true,
           ),
     goal_addressed: () =>
-      facts.goals.some((g) => g.status === "addressed" && g.claims.some(isBackedSupported))
+      facts.goals.some((g) => g.status === "addressed" && g.claims.some(isBackedSupported)) || goalAttestationIds.size > 0
         ? null
         : issue(
             ISSUE_CODES.NO_GOAL_ADDRESSED,
             "goal_addressed",
-            "No plan goal is shown as addressed by the session evidence. At least one goal must be addressed with a supported statement.",
+            "No plan goal is shown as addressed. At least one goal must be addressed with a supported statement, or confirmed by you as addressed in this visit.",
             true,
           ),
     progress_statement: () => {

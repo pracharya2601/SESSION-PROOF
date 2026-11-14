@@ -81,3 +81,55 @@ describe("assembleBundle", () => {
     expect(b2).toEqual(b1);
   });
 });
+
+describe("provider goal confirmation (assembly + documents)", () => {
+  const transcriptOnly = {
+    activities: [],
+    observations: [],
+    goals: demoConfig.plan.goals.map((g) => ({ goalId: g.goalId, status: "unknown" as const, claims: [] })),
+    progress: [],
+    followUps: [],
+    missingInformation: ["AI extraction is not configured."],
+  };
+  const a = (id: string, field: ProviderAttestation["field"], text: string): ProviderAttestation => ({
+    id, field, text, actorProviderId: "provider_demo_001", attestedAt: "2026-11-13T19:40:00.000Z", bundleRevision: 1,
+  });
+
+  it("renders confirmed goals as provider_confirmed (never evidence) and the summary as provider written", () => {
+    const b = assembleBundle(
+      input(
+        [
+          ...confirmed,
+          a("att_g1", "goal_addressed", "goal_budget"),
+          a("att_gx", "goal_addressed", "goal_unknown"),
+          a("att_s", "activity_summary", "Reviewed the weekly food budget."),
+        ],
+        transcriptOnly,
+      ),
+    );
+    expect(b.checks.issues.filter((i) => i.blocking)).toEqual([]);
+    const cov = b.documents.planCoverage.find((g) => g.goalId === "goal_budget")!;
+    expect(cov).toMatchObject({ status: "addressed", support: "provider_confirmed" });
+    expect(b.documents.planCoverage.find((g) => g.goalId === "goal_transport")).toMatchObject({ status: "unknown" });
+    expect(b.documents.planCoverage.find((g) => g.goalId === "goal_transport")!.support).toBeUndefined();
+    // unknown plan goal ids are ignored in facts
+    expect(b.facts.goals.some((g) => g.goalId === "goal_unknown")).toBe(false);
+    const goalClaim = b.facts.goals.find((g) => g.goalId === "goal_budget")!.claims[0]!;
+    expect(goalClaim).toMatchObject({ support: "provider_confirmed", evidenceIds: [], providerAttestationId: "att_g1" });
+    // extracted facts stay untouched
+    expect(b.extractedFacts.goals.every((g) => g.status === "unknown")).toBe(true);
+
+    const coverage = b.documents.sections.find((s) => s.key === "plan_coverage")!.lines;
+    const line = coverage.find((l) => l.text.startsWith("Practice budgeting."))!;
+    expect(line).toMatchObject({ text: "Practice budgeting. — Addressed (provider confirmed)", origin: "provider_attestation", attestationIds: ["att_g1"], evidenceIds: [] });
+    const note = b.documents.sections.find((s) => s.key === "session_note")!.lines;
+    expect(note).toContainEqual(expect.objectContaining({ text: "Goal addressed (provider confirmed): Practice budgeting.", origin: "provider_attestation", attestationIds: ["att_g1"] }));
+    expect(note).toContainEqual(expect.objectContaining({ text: "Activity summary (provider written): Reviewed the weekly food budget.", origin: "provider_attestation" }));
+    expect(note.some((l) => l.text.startsWith("No supported activities"))).toBe(false);
+  });
+
+  it("an evidence-addressed goal that is also confirmed stays labelled as evidence", () => {
+    const b = assembleBundle(input([...confirmed, a("att_g1", "goal_addressed", "goal_transport")]));
+    expect(b.documents.planCoverage.find((g) => g.goalId === "goal_transport")).toMatchObject({ status: "addressed", support: "evidence" });
+  });
+});

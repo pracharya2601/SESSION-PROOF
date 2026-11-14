@@ -129,7 +129,9 @@ function sessionNoteSection(c: Ctx, key: string): DocBlock[] {
       return [kv(items)];
     }
     case "session_note":
-      return lineList(sectionLines(b, "session_note"), "No session note content recorded.");
+      return lineList(sectionLines(b, "session_note"), "No session note content recorded.", (l) =>
+        l.origin === "provider_attestation" ? (l.text.startsWith("Activity summary") ? "Provider written" : "Provider confirmed") : undefined,
+      );
     case "progress":
       return lineList(sectionLines(b, "progress_record"), "No progress statement recorded.", (l) =>
         l.origin === "provider_attestation" || l.attestationIds.length > 0 ? "Provider confirmed" : undefined,
@@ -146,7 +148,11 @@ function sessionNoteSection(c: Ctx, key: string): DocBlock[] {
             { label: "Objective", width: 0.44 },
             { label: "Status", width: 0.38 },
           ],
-          rows: b.documents.planCoverage.map((g) => [g.goalId, g.objective, STATUS_LABEL[g.status]]),
+          rows: b.documents.planCoverage.map((g) => [
+            g.goalId,
+            g.objective,
+            g.support === "provider_confirmed" ? "Addressed (provider confirmed)" : STATUS_LABEL[g.status],
+          ]),
         },
       ];
     case "follow_ups":
@@ -316,7 +322,14 @@ const ATTESTATION_FIELD: Record<ProviderAttestation["field"], string> = {
   participant_direction: "Participant direction",
   participant_choices: "Participant choices",
   amendment_reason: "Amendment reason",
+  goal_addressed: "Goal addressed (provider confirmed)",
+  activity_summary: "Activity summary (provider written)",
 };
+
+function goalLabel(b: SessionBundle, goalId: string): string {
+  const g = b.config.plan.goals.find((x) => x.goalId === goalId.trim());
+  return g ? `${g.goalId} — ${g.objective}` : goalId;
+}
 
 function approvalSection(c: Ctx, key: string): DocBlock[] {
   const b = c.bundle;
@@ -374,7 +387,11 @@ function approvalSection(c: Ctx, key: string): DocBlock[] {
           ],
           rows: b.attestations.map((att) => [
             ATTESTATION_FIELD[att.field] ?? att.field,
-            att.field === "duration" && /^\d+$/.test(att.text) ? `${att.text} minutes confirmed` : att.text,
+            att.field === "duration" && /^\d+$/.test(att.text)
+              ? `${att.text} minutes confirmed`
+              : att.field === "goal_addressed"
+                ? goalLabel(b, att.text)
+                : att.text,
             att.actorProviderId,
             `${dateTimeInTz(att.attestedAt, tz)} · rev r${att.bundleRevision}`,
           ]),

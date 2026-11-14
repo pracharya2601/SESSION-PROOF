@@ -190,3 +190,78 @@ describe("validateRequirements", () => {
     expect(isMeaningfulText("...")).toBe(false);
   });
 });
+
+describe("provider goal confirmation and activity summary", () => {
+  const transcriptOnly: SessionFacts = {
+    activities: [],
+    observations: [],
+    goals: demoPlan.goals.map((g) => ({ goalId: g.goalId, status: "unknown" as const, claims: [] })),
+    progress: [],
+    followUps: [],
+    missingInformation: ["AI extraction is not configured."],
+  };
+  const att = (id: string, field: ProviderAttestation["field"], text: string): ProviderAttestation => ({
+    id,
+    field,
+    text,
+    actorProviderId: demoAppointment.providerId,
+    attestedAt: "2026-11-13T19:45:00.000Z",
+    bundleRevision: 2,
+  });
+
+  it("transcript-only facts block on service description, goal, progress and duration", () => {
+    const r = validateRequirements(input({ facts: transcriptOnly }));
+    expect(codes(r, true)).toEqual(
+      [
+        ISSUE_CODES.MISSING_SERVICE_DESCRIPTION,
+        ISSUE_CODES.NO_GOAL_ADDRESSED,
+        ISSUE_CODES.MISSING_PROGRESS,
+        ISSUE_CODES.MISSING_CONFIRMED_DURATION,
+      ].sort(),
+    );
+  });
+
+  it("a provider goal confirmation + activity summary + progress + duration clears every blocker", () => {
+    const r = validateRequirements(
+      input({
+        facts: transcriptOnly,
+        attestations: [
+          att("a_goal_1", "goal_addressed", "goal_transport"),
+          att("a_sum", "activity_summary", "Planned the bus route to the library together."),
+          attestation("Found the transfer stop without prompting."),
+        ],
+        confirmedMinutes: 45,
+      }),
+    );
+    expect(codes(r, true)).toEqual([]);
+    expect(r.canApprove).toBe(true);
+  });
+
+  it("a goal confirmation naming a goal outside the plan does not count", () => {
+    const r = validateRequirements(
+      input({ facts: transcriptOnly, attestations: [att("a_goal_x", "goal_addressed", "goal_not_in_plan")] }),
+    );
+    expect(codes(r, true)).toContain(ISSUE_CODES.NO_GOAL_ADDRESSED);
+  });
+
+  it("a placeholder activity summary does not describe the service", () => {
+    const r = validateRequirements(input({ facts: transcriptOnly, attestations: [att("a_sum", "activity_summary", "n/a")] }));
+    expect(codes(r, true)).toContain(ISSUE_CODES.MISSING_SERVICE_DESCRIPTION);
+  });
+
+  it("provider_confirmed goal claims are never treated as evidence-supported", () => {
+    // A provider_confirmed claim with no matching attestation must not satisfy goal_addressed.
+    const facts: SessionFacts = {
+      ...transcriptOnly,
+      goals: [
+        { goalId: "goal_transport", status: "addressed", claims: [{ id: "c1", text: "Confirmed.", evidenceIds: [], support: "provider_confirmed", providerAttestationId: "missing" }] },
+      ],
+    };
+    expect(codes(validateRequirements(input({ facts })), true)).toContain(ISSUE_CODES.NO_GOAL_ADDRESSED);
+  });
+
+  it("evidence-addressed goals keep working without any confirmation (demo flow unchanged)", () => {
+    const r = validateRequirements(input({ attestations: [attestation("Good progress made.")], confirmedMinutes: 60 }));
+    expect(codes(r, true)).toEqual([]);
+  });
+});

@@ -15,6 +15,8 @@ import { ApproveButton } from "./ApproveButton";
 const FIX_TARGET: Record<string, { id: string; action: string }> = {
   progress_statement: { id: "rv-progress", action: "Write a progress statement" },
   confirmed_duration: { id: "rv-minutes", action: "Enter the actual minutes" },
+  goal_addressed: { id: "rv-goals", action: "Confirm which plan goals were addressed" },
+  service_description: { id: "rv-summary", action: "Write an activity summary" },
 };
 
 export function jumpTo(id: string): void {

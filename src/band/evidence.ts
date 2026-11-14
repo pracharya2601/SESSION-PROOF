@@ -34,7 +34,7 @@ export class BandEvidenceSource implements EvidenceSource {
 
   async modeFor(appointment: Appointment): Promise<SourceMode> {
     const visit = await this.store.getVisitByAppointment(appointment.id);
-    return visit?.transcriber === "deepgram" ? "live" : "fixture";
+    return visit?.transcriber === "deepgram" || visit?.transcriber === "device" ? "live" : "fixture";
   }
 
   async retrieveEvidence(appointment: Appointment): Promise<EvidenceResult> {

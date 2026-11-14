@@ -51,7 +51,7 @@ export type PairDeviceResponse = z.infer<typeof PairDeviceResponse>;
 export const DeviceMe = z.object({
   device: PairedDevice,
   provider: z.object({ id: Id, identity: z.string() }),
-  /** Transcribers this server accepts for device visits ("device" always; "deepgram" if configured). */
+  /** Transcribers this server can run for device visits: the server's choice (deepgram/simulated) if any, then "device" (always accepted). */
   transcribers: z.array(z.enum(["deepgram", "device", "simulated"])),
 });
 export type DeviceMe = z.infer<typeof DeviceMe>;
@@ -70,8 +70,11 @@ export const DeviceStartVisitRequest = z
     bandNumber: z.number().int().min(1).max(999).nullable(),
     transport: BandTransport,
     timezone: z.string().min(1).max(64).optional(),
-    /** Default "device" (on-phone transcription). */
-    transcriber: z.enum(["device", "server"]).default("device"),
+    /**
+     * Default "server": the phone only records and streams audio; the Worker transcribes
+     * (Deepgram, or simulated in local dev). "device" = on-phone transcription (optional path).
+     */
+    transcriber: z.enum(["device", "server"]).default("server"),
   })
   .strict();
 export type DeviceStartVisitRequest = z.infer<typeof DeviceStartVisitRequest>;

@@ -55,6 +55,24 @@ describe("saveReview", () => {
     expect(b3.attestations.find((a) => a.field === "participant_direction")!.text).toBe("no");
   });
 
+  it("records goal confirmations (plan goal ids only) and the activity summary; a new list replaces the old", async () => {
+    const { deps } = makeDeps();
+    expect(await code(saveReview(deps, actor, SESSION, { expectedRevision: 1, edits: { goalsAddressed: ["g1", "nope"] } }))).toBe(
+      "422:UNKNOWN_GOAL",
+    );
+    const b2 = await saveReview(deps, actor, SESSION, {
+      expectedRevision: 1,
+      edits: { goalsAddressed: ["g1"], activitySummary: "Planned the week's tasks together." },
+    });
+    expect(b2.attestations.map((a) => [a.id, a.field, a.text]).sort()).toEqual([
+      [`att-${SESSION}-r2-activity_summary`, "activity_summary", "Planned the week's tasks together."],
+      [`att-${SESSION}-r2-goal_addressed-1`, "goal_addressed", "g1"],
+    ]);
+    // [] clears the confirmation, keeps the summary
+    const b3 = await saveReview(deps, actor, SESSION, { expectedRevision: 2, edits: { goalsAddressed: [] } });
+    expect(b3.attestations.map((a) => a.field)).toEqual(["activity_summary"]);
+  });
+
   it("rejects stale revision, foreign session, and post-approval edits", async () => {
     const { deps, repo } = makeDeps();
     expect(await code(saveReview(deps, actor, SESSION, { expectedRevision: 5, edits: { confirmedMinutes: 60 } }))).toBe("409:STALE_REVISION");

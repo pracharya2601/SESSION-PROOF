@@ -103,8 +103,24 @@ export const generateDocuments: GenerateDocumentsFn = (input) => {
     ...facts.activities.map((c) => claimLine("Activity: ", c)),
     ...facts.observations.map((c) => claimLine("Observation: ", c)),
   ];
-  if (facts.activities.length === 0 && facts.observations.length === 0) {
+  const activitySummaries = attestations.filter((a) => a.field === "activity_summary");
+  for (const a of activitySummaries) sessionNote.push(attestationLine("Activity summary (provider written): ", a));
+  if (facts.activities.length === 0 && facts.observations.length === 0 && activitySummaries.length === 0) {
     sessionNote.push(notice("No supported activities or observations recorded."));
+  }
+  // Goals the provider confirmed (goal_addressed attestations naming a plan goal). Never transcript-supported.
+  const goalAttestations = attestations.filter(
+    (a) => a.field === "goal_addressed" && plan.goals.some((g) => g.goalId === a.text.trim()),
+  );
+  for (const a of goalAttestations) {
+    const goal = plan.goals.find((g) => g.goalId === a.text.trim())!;
+    sessionNote.push({
+      text: `Goal addressed (provider confirmed): ${goal.objective}`,
+      claimIds: [],
+      evidenceIds: [],
+      attestationIds: [a.id],
+      origin: "provider_attestation",
+    });
   }
 
   // ---- progress record (attestations rendered from the attestation list; merged
@@ -122,23 +138,43 @@ export const generateDocuments: GenerateDocumentsFn = (input) => {
   if (!hasSupportedProgress) progress.push(notice(NO_PROGRESS_NOTICE));
 
   // ---- plan coverage
+  // "addressed" counts as evidence only when a supported claim backs it; a status that only a
+  // provider goal confirmation establishes is labelled provider_confirmed, never transcript-supported.
+  const confirmedGoalIds = new Set(goalAttestations.map((a) => a.text.trim()));
   const planCoverage: PlanCoverageEntry[] = plan.goals.map((g) => {
     const gf = facts.goals.find((x) => x.goalId === g.goalId);
-    return {
+    const status = gf?.status ?? "unknown";
+    const evidenceAddressed = status === "addressed" && !!gf?.claims.some((c) => c.support === "supported");
+    const entry: PlanCoverageEntry = {
       goalId: g.goalId,
       objective: g.objective,
-      status: gf?.status ?? "unknown",
+      status,
       claimIds: gf ? gf.claims.map((c) => c.id) : [],
     };
+    if (status !== "unknown") entry.support = confirmedGoalIds.has(g.goalId) && !evidenceAddressed ? "provider_confirmed" : "evidence";
+    return entry;
   });
   const coverageLines: DocumentLine[] = planCoverage.map((e) => {
-    const claims = facts.goals.find((x) => x.goalId === e.goalId)?.claims ?? [];
+    const all = facts.goals.find((x) => x.goalId === e.goalId)?.claims ?? [];
+    const claims = all.filter((c) => c.support !== "provider_confirmed");
+    const confirmed = all.filter((c) => c.support === "provider_confirmed");
+    if (e.support === "provider_confirmed") {
+      const extra = claims.length === 0 ? "" : ` — ${claims.map((c) => (c.support === "uncertain" ? `(uncertain) ${c.text}` : c.text)).join(" ")}`;
+      return {
+        text: `${e.objective} — Addressed (provider confirmed)${extra}`,
+        claimIds: [...e.claimIds],
+        evidenceIds: [...new Set(claims.flatMap((c) => c.evidenceIds))],
+        attestationIds: confirmed.map((c) => c.providerAttestationId).filter((id): id is string => !!id),
+        origin: "provider_attestation",
+      };
+    }
     const detail = e.status === "unknown" || claims.length === 0 ? "" : ` — ${claims.map((c) => c.text).join(" ")}`;
+    const alsoConfirmed = confirmed.length > 0 ? " (also confirmed by the provider)" : "";
     return {
-      text: `${e.objective} — ${STATUS_LABEL[e.status]}${detail}`,
+      text: `${e.objective} — ${STATUS_LABEL[e.status]}${detail}${alsoConfirmed}`,
       claimIds: [...e.claimIds],
       evidenceIds: [...new Set(claims.flatMap((c) => c.evidenceIds))],
-      attestationIds: [],
+      attestationIds: confirmed.map((c) => c.providerAttestationId).filter((id): id is string => !!id),
       origin: e.status === "unknown" ? "system_notice" : "extracted",
     };
   });

@@ -26,8 +26,18 @@ export function attestationClaimId(attestationId: string): string {
   return `claim_${attestationId}`.slice(0, 128);
 }
 
-/** Display view: extracted facts (deep-copied) + progress attestations as provider_confirmed claims. */
-export function mergeAttestations(extracted: SessionFacts, attestations: ProviderAttestation[]): SessionFacts {
+export const PROVIDER_GOAL_CLAIM_TEXT = "The provider confirmed this goal was addressed in the visit.";
+
+/**
+ * Display view: extracted facts (deep-copied) + progress attestations as provider_confirmed
+ * claims + goal_addressed attestations as a provider_confirmed claim on that goal (status
+ * "addressed"). Goal attestations naming a goal outside `planGoalIds` (when given) are ignored.
+ */
+export function mergeAttestations(
+  extracted: SessionFacts,
+  attestations: ProviderAttestation[],
+  planGoalIds?: ReadonlySet<string>,
+): SessionFacts {
   const copy: SessionFacts = structuredClone(extracted);
   const attested: FactClaim[] = attestations
     .filter((a) => a.field === "progress")
@@ -39,13 +49,33 @@ export function mergeAttestations(extracted: SessionFacts, attestations: Provide
       providerAttestationId: a.id,
     }));
   copy.progress = [...copy.progress, ...attested];
+  for (const a of attestations) {
+    if (a.field !== "goal_addressed") continue;
+    const goalId = a.text.trim();
+    if (!goalId || (planGoalIds && !planGoalIds.has(goalId))) continue;
+    const claim: FactClaim = {
+      id: attestationClaimId(a.id),
+      text: PROVIDER_GOAL_CLAIM_TEXT,
+      evidenceIds: [],
+      support: "provider_confirmed",
+      providerAttestationId: a.id,
+    };
+    const goal = copy.goals.find((g) => g.goalId === goalId);
+    if (goal) {
+      if (goal.claims.some((c) => c.id === claim.id)) continue;
+      goal.status = "addressed";
+      goal.claims = [...goal.claims, claim].slice(0, 50);
+    } else if (copy.goals.length < 20) {
+      copy.goals.push({ goalId, status: "addressed", claims: [claim] });
+    }
+  }
   return copy;
 }
 
 export const assembleBundle: AssembleBundleFn = (input) => {
   const { appointment, config, attestations } = input;
   const extractedFacts: SessionFacts = structuredClone(input.facts);
-  const facts = mergeAttestations(extractedFacts, attestations);
+  const facts = mergeAttestations(extractedFacts, attestations, new Set(config.plan.goals.map((g) => g.goalId)));
   const confirmedMinutes = confirmedMinutesFrom(attestations);
   const scheduledMs = new Date(appointment.endAt).getTime() - new Date(appointment.startAt).getTime();
   const scheduledMinutes = Number.isFinite(scheduledMs) ? Math.max(0, Math.round(scheduledMs / 60_000)) : 0;

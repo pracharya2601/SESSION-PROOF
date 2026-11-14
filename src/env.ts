@@ -26,6 +26,13 @@ export interface Env {
    */
   PUBLIC_STREAM_ORIGIN?: string;
 
+  /**
+   * Paired devices: the http(s) origin a phone uses for the device API, put into the pairing
+   * link (e.g. "http://192.168.1.20:8787" on the LAN in dev, "https://field.example.com").
+   * Unset → derived from PUBLIC_STREAM_ORIGIN (ws→http, wss→https), else APP_ORIGIN.
+   */
+  PUBLIC_APP_ORIGIN?: string;
+
   /** v2: default inference provider when a user has no AI settings (anthropic|openai|gemini|mistral). */
   AI_PROVIDER?: string;
 
