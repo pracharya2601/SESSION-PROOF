@@ -23,6 +23,7 @@ import { ApprovalRecordPanel } from "../components/review/ApprovalRecordPanel";
 import { ApproveButton } from "../components/review/ApproveButton";
 import { FilesCard } from "../components/review/FilesCard";
 import { AmendBanner, AmendCard } from "../components/review/AmendCard";
+import { ApprovalChecklist } from "../components/review/ApprovalChecklist";
 import { Celebration } from "../components/review/Celebration";
 import { RevisionBadge } from "../components/review/RevisionBadge";
 import { Section } from "../components/review/Section";
@@ -585,9 +586,18 @@ export default function Review(props: { sessionId: string; onBack: () => void })
                     Approval recorded — generating final documents…
                   </motion.p>
                 ) : editable ? (
-                  <motion.p key="todo" className="rv-muted rv-small" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-                    Review the documents, confirm the time, save, then approve.
-                  </motion.p>
+                  <motion.div key="todo" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+                    <ApprovalChecklist
+                      bundle={bundle}
+                      dirty={dirty}
+                      saving={saving}
+                      approving={approving}
+                      canApprove={canApprove}
+                      approveReason={approveReason}
+                      onSave={() => void onSave()}
+                      onApprove={() => void onApprove()}
+                    />
+                  </motion.div>
                 ) : null}
               </AnimatePresence>
             </motion.section>
