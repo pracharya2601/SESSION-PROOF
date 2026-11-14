@@ -14,5 +14,5 @@
     "resolveJsonModule": true,
     "noEmit": true
   },
-  "include": ["src", "tests", "fixtures", "vite.config.ts", "vitest.config.ts"]
+  "include": ["src", "tests", "fixtures", "scripts/platform", "vite.config.ts", "vitest.config.ts"]
 }

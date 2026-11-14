@@ -1,0 +1,80 @@
+.rv-page { display: flex; flex-direction: column; gap: 16px; max-width: 1200px; margin: 0 auto; padding: 16px; }
+.rv-grid { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 16px; align-items: start; }
+.rv-col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+@media (max-width: 860px) { .rv-grid { grid-template-columns: 1fr; } }
+
+.rv-header { display: flex; flex-direction: column; gap: 8px; }
+.rv-title { margin: 0; font-size: 1.4rem; }
+.rv-header-meta { flex-wrap: wrap; gap: 6px; }
+.rv-mode { text-transform: none; opacity: 0.85; }
+.rv-status-reason { margin: 0; }
+.rv-warn { color: #9a5b00; }
+.rv-warn-list { margin: 0; padding-left: 20px; color: #9a5b00; }
+.rv-small { font-size: 0.85rem; margin-top: 0; }
+
+.rv-doc-section h3 { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 1rem; margin: 16px 0 6px; }
+.rv-not-sent { background: #eef1f5; color: #3b4452; border: 1px dashed #8a94a3; }
+.rv-lines { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.rv-line { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; }
+.rv-line-text { flex: 1 1 240px; }
+.rv-tag { font-size: 0.72rem; font-weight: 600; padding: 1px 6px; border-radius: 4px; white-space: nowrap; }
+.rv-tag-provider { background: #e3f4e8; color: #17623a; border: 1px solid #8cc9a3; }
+.rv-tag-evidence { background: #e6eefb; color: #1f4b8f; border: 1px solid #9bb7e6; }
+.rv-tag-system { background: #f3f0e6; color: #6b5a1e; border: 1px solid #d3c48e; }
+.rv-tag-config { background: #f0f0f0; color: #444; border: 1px solid #ccc; }
+.rv-ev-refs { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+.rv-ev-link { font: inherit; font-size: 0.75rem; font-family: ui-monospace, monospace; padding: 0 4px; border: 1px solid #9bb7e6; border-radius: 4px; background: transparent; color: #1f4b8f; cursor: pointer; }
+.rv-ev-link:hover, .rv-ev-link:focus-visible { background: #e6eefb; }
+
+.rv-ev-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; max-height: 520px; overflow-y: auto; }
+.rv-ev-item { border: 1px solid #ddd; border-radius: 6px; padding: 8px; outline: none; transition: background 0.2s, border-color 0.2s; }
+.rv-ev-active { border-color: #1f4b8f; background: #eef4ff; box-shadow: 0 0 0 2px #9bb7e6; }
+.rv-ev-meta { display: flex; flex-wrap: wrap; gap: 8px; font-size: 0.8rem; align-items: center; }
+.rv-excerpt { margin: 6px 0 0; padding-left: 8px; border-left: 3px solid #ccc; overflow-wrap: anywhere; }
+
+.rv-cov-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.rv-cov { display: flex; gap: 8px; align-items: baseline; }
+.rv-cov-status { font-size: 0.75rem; font-weight: 600; padding: 1px 8px; border-radius: 999px; white-space: nowrap; }
+.rv-cov-status-addressed { background: #1f4b8f; color: #fff; }
+.rv-cov-status-partially_addressed { background: #fff; color: #1f4b8f; border: 1px solid #1f4b8f; }
+.rv-cov-status-unknown { background: #fff; color: #555; border: 1px dashed #888; }
+
+.rv-issues { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.rv-issue { padding: 6px 8px; border-radius: 4px; }
+.rv-issue-blocking { background: #fdecec; border-left: 4px solid #b42318; }
+.rv-issue-info { background: #f4f4f4; border-left: 4px solid #888; }
+.rv-block-h { color: #b42318; font-size: 1rem; }
+
+.rv-dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 12px; margin: 0; }
+.rv-dl dt { font-weight: 600; }
+.rv-dl dd { margin: 0; overflow-wrap: anywhere; }
+@media (max-width: 480px) { .rv-dl { grid-template-columns: 1fr; } .rv-dl dd { margin-bottom: 6px; } }
+
+.rv-amount { display: flex; align-items: center; gap: 10px; }
+.rv-amount-value { font-size: 1.8rem; font-weight: 700; }
+.rv-estimate { background: #fff4d6; color: #7a5200; border: 1px solid #e0b450; font-weight: 700; }
+.rv-breakdown { margin: 6px 0; }
+
+.rv-field { display: flex; flex-direction: column; gap: 4px; }
+.rv-field label { font-weight: 600; }
+.rv-field textarea, .rv-field input { font: inherit; padding: 6px 8px; max-width: 100%; box-sizing: border-box; }
+.rv-field input { max-width: 160px; }
+.rv-field-error { color: #b42318; }
+
+.rv-banner { padding: 10px 12px; border-radius: 6px; }
+.rv-banner-ok { background: #e3f4e8; border: 1px solid #8cc9a3; color: #17623a; }
+.rv-banner-info { background: #e6eefb; border: 1px solid #9bb7e6; color: #1f4b8f; }
+.rv-approve { display: flex; flex-direction: column; gap: 8px; }
+.rv-approve-reason { margin: 0; }
+.rv-err-details { margin: 6px 0 0; padding-left: 20px; }
+
+@media (prefers-color-scheme: dark) {
+  .rv-ev-item { border-color: #444; }
+  .rv-ev-active { background: #1d2a40; border-color: #9bb7e6; }
+  .rv-issue-info { background: #2a2a2a; }
+  .rv-issue-blocking { background: #3a1c1c; }
+  .rv-not-sent { background: #2a2f38; color: #cfd6e0; }
+  .rv-tag-config { background: #2a2a2a; color: #ccc; }
+  .rv-cov-status-partially_addressed, .rv-cov-status-unknown { background: transparent; color: inherit; }
+  .rv-warn, .rv-warn-list { color: #f0b860; }
+}

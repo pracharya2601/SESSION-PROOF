@@ -35,6 +35,45 @@
     "AUTH_MODE": "dev",
     "APP_ORIGIN": "http://localhost:8787",
     "RUNTIME_MODE": "local"
+  },
+  // The default (top-level) config is LOCAL DEV ONLY: dev auth, synthetic data.
+  // Never publish it on a public URL.
+  "workers_dev": false,
+  "preview_urls": false,
+
+  // Deploy with `npm run deploy` (= --env production). Bindings and vars are
+  // not inherited by environments, so they are repeated here.
+  "env": {
+    "production": {
+      "workers_dev": false,
+      "preview_urls": false,
+      // Put Cloudflare Access in front of this route before first deploy.
+      // "routes": [{ "pattern": "field-assist.example.com", "custom_domain": true }],
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "vexo-field-assistant",
+          "database_id": "00000000-0000-0000-0000-000000000000",
+          "migrations_dir": "migrations"
+        }
+      ],
+      "queues": {
+        "producers": [{ "binding": "SESSION_QUEUE", "queue": "vexo-session-processing" }],
+        "consumers": [{ "queue": "vexo-session-processing", "max_batch_size": 10, "max_retries": 5 }]
+      },
+      "workflows": [
+        { "binding": "SESSION_WORKFLOW", "name": "vexo-session-workflow", "class_name": "SessionWorkflow" }
+      ],
+      "triggers": { "crons": ["*/5 * * * *"] },
+      "vars": {
+        "EVIDENCE_MODE": "fixture",
+        "EXTRACTION_MODE": "fixture",
+        "AI_MODEL": "claude-sonnet-5-5",
+        "AUTH_MODE": "access",
+        "APP_ORIGIN": "https://field-assist.example.com",
+        "RUNTIME_MODE": "deployed"
+      }
+    }
   }
   // Secrets (never committed): AI_API_KEY, TOKEN_ENCRYPTION_KEY, SESSION_SECRET
 }

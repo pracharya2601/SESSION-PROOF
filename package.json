@@ -4,18 +4,20 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "npm run build:ui && wrangler dev",
+    "dev": "npm run build:ui && wrangler dev --port 8787",
     "dev:ui": "vite",
     "build:ui": "vite build",
-    "build": "npm run typecheck && vite build && wrangler deploy --dry-run --outdir .wrangler/dry-run",
+    "build": "vite build && wrangler deploy --dry-run --outdir .wrangler/dry-run",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:unit": "vitest run tests/unit src",
+    "test:unit": "vitest run tests/unit src fixtures",
     "test:integration": "vitest run tests/integration",
     "test:e2e": "node scripts/e2e/demo.mjs",
     "db:migrate:local": "wrangler d1 migrations apply vexo-field-assistant --local",
+    "db:migrate:remote": "wrangler d1 migrations apply vexo-field-assistant --remote --env production",
     "db:seed:local": "node scripts/seed/seed-local.mjs",
-    "deploy": "npm run build && wrangler deploy"
+    "smoke:platform": "bash scripts/platform/smoke.sh",
+    "deploy": "npm run typecheck && npm run build && wrangler deploy --env production"
   },
   "dependencies": {
     "hono": "^4.13.18",
