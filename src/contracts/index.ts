@@ -7,3 +7,4 @@ export * from "./v3";
 export * from "./band";
 export * from "./devices";
 export * from "./offline";
+export * from "./schedule";
