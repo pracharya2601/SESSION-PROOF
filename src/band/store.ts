@@ -24,6 +24,7 @@ function rowToVisit(r: Row): Visit {
     lostPackets: Number(r.lost_packets ?? 0),
     segmentCount: Number(r.segment_count ?? 0),
     sessionId: r.session_id ?? null,
+    scenario: r.scenario ?? null,
   });
 }
 
@@ -50,6 +51,7 @@ export interface NewVisit {
   transport: BandTransport;
   transcriber: Transcriber;
   startedAt: string;
+  scenario?: string | null;
 }
 
 export interface VisitStore {
@@ -96,10 +98,10 @@ export function createVisitStore(db: D1Database): VisitStore {
           ),
         db
           .prepare(
-            `INSERT INTO band_visits (id, provider_id, appointment_id, client_ref, band_number, transport, transcriber, status, started_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, 'recording', ?)`,
+            `INSERT INTO band_visits (id, provider_id, appointment_id, client_ref, band_number, transport, transcriber, status, started_at, scenario)
+             VALUES (?, ?, ?, ?, ?, ?, ?, 'recording', ?, ?)`,
           )
-          .bind(v.id, v.providerId, a.id, a.clientRef, v.bandNumber, v.transport, v.transcriber, v.startedAt),
+          .bind(v.id, v.providerId, a.id, a.clientRef, v.bandNumber, v.transport, v.transcriber, v.startedAt, v.scenario ?? null),
       ]);
       const out = await getById(v.id);
       if (!out) throw new Error("visit insert failed");

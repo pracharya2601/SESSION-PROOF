@@ -39,6 +39,8 @@ export const StartVisitRequest = z
     transport: BandTransport,
     /** IANA zone for the documents; defaults to the client's last appointment zone. */
     timezone: z.string().min(1).max(64).optional(),
+    /** Dev only (simulated transcriber): synthetic scenario id from fixtures/band. Rejected when deployed or live. */
+    scenario: z.string().regex(/^[a-z0-9-]{1,64}$/).optional(),
   })
   .strict();
 export type StartVisitRequest = z.infer<typeof StartVisitRequest>;
@@ -61,6 +63,8 @@ export const Visit = z.object({
   segmentCount: z.number().int().nonnegative(),
   /** Set once the visit is stopped and handed to processing. */
   sessionId: Id.nullable(),
+  /** Dev only: synthetic scenario the simulated transcriber plays; null = default script. */
+  scenario: z.string().nullable().default(null),
 });
 export type Visit = z.infer<typeof Visit>;
 

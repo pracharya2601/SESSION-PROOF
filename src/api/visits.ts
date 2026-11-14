@@ -93,6 +93,9 @@ export function visitsRoutes(deps: ApiDeps): Hono<AppBindings> {
     const status = captureStatus(deps.env);
     if (!status.transcriber) return apiError(c, 503, "TRANSCRIPTION_NOT_CONFIGURED", status.reason ?? "Unavailable", false);
 
+    if (body.data.scenario && (status.transcriber !== "simulated" || deps.env.RUNTIME_MODE === "deployed")) {
+      return apiError(c, 400, "SCENARIO_DEV_ONLY", "Synthetic scenarios only run with the simulated transcriber in local dev.", false);
+    }
     const template = await v.store.latestAppointmentForClient(actor.providerId, body.data.clientRef);
     if (!template) {
       return apiError(c, 422, "NO_SERVICE_PLAN", "This client has no service plan on file yet (no earlier appointment to copy it from).", false);
@@ -117,6 +120,7 @@ export function visitsRoutes(deps: ApiDeps): Hono<AppBindings> {
       transport: body.data.transport,
       transcriber: status.transcriber,
       startedAt: now.toISOString(),
+      scenario: body.data.scenario ?? null,
     });
     const secret = deps.env.SESSION_SECRET;
     if (!secret) return apiError(c, 503, "AUTH_NOT_CONFIGURED", "SESSION_SECRET is not configured.", false);
