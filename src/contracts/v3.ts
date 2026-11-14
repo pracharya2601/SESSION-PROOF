@@ -254,6 +254,7 @@ export const RunStage = z.enum([
   "delivery_email",
   "completed",
   "failed",
+  "amended",
 ]);
 export type RunStage = z.infer<typeof RunStage>;
 
@@ -301,3 +302,28 @@ export type ListRunsResponse = z.infer<typeof ListRunsResponse>;
 export interface RunRecorder {
   record(e: Omit<RunEvent, "id" | "at"> & { idSuffix?: string; at?: string }): Promise<void>;
 }
+
+// ================================================================== amendments
+/** Reopen a COMPLETED session as a new revision that must be re-approved. */
+export const AmendRequest = z
+  .object({
+    /** The finalized revision being amended (must be the current final). */
+    expectedRevision: z.number().int().positive(),
+    reason: z.string().trim().min(3).max(500),
+  })
+  .strict();
+export type AmendRequest = z.infer<typeof AmendRequest>;
+
+/** A previously approved revision that an amendment replaced (kept for audit). */
+export const SupersededRevision = z.object({
+  sessionId: Id,
+  bundleRevision: z.number().int().positive(),
+  approvalId: Id,
+  finalizedAt: Instant,
+  supersededAt: Instant,
+  supersededByRevision: z.number().int().positive(),
+  reason: z.string(),
+  actorProviderId: Id,
+  amountCents: z.number().int().nonnegative().nullable(),
+});
+export type SupersededRevision = z.infer<typeof SupersededRevision>;

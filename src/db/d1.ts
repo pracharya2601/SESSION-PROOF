@@ -24,6 +24,7 @@ import {
   EvidenceItem,
   SyncSettings,
   DEFAULT_SYNC_SETTINGS,
+  SupersededRevision,
   AiSettings,
   ConnectionProvider,
   DEFAULT_EMAIL_SETTINGS,
@@ -891,6 +892,111 @@ export function createRepository(db: D1Database): Repository {
         return fail("stale_revision", `current revision is ${s.currentBundleRevision}`);
       }
       return fail("invalid_state", `status is ${s.status}`);
+    },
+
+    // ------------------------------------------------ amendments
+    async amendSession(sessionId, expectedRevision, bundleIn, reason, actorProviderId, now) {
+      const bundle = SessionBundle.parse(bundleIn);
+      if (bundle.sessionId !== sessionId) return fail("conflict", "bundle belongs to another session");
+      if (bundle.bundleRevision !== expectedRevision + 1) {
+        return fail("conflict", `bundle revision must be ${expectedRevision + 1}`);
+      }
+      const t = iso(now);
+      // Every write shares this guard; the session update runs LAST so the guard holds for all.
+      const guardSql = "id = ? AND current_bundle_revision = ? AND status = 'COMPLETED'";
+      const guardParams = [sessionId, expectedRevision];
+      const sessionGuard = `EXISTS (SELECT 1 FROM sessions WHERE ${guardSql})`;
+      let applied = false;
+      try {
+        const results = await db.batch([
+          db
+            .prepare(
+              `INSERT INTO superseded_finals (session_id, bundle_revision, approval_id, finalized_at, bundle_json,
+                                              superseded_at, superseded_by_revision, reason, actor_provider_id)
+               SELECT f.session_id, f.bundle_revision, f.approval_id, f.finalized_at, f.bundle_json, ?, ?, ?, ?
+               FROM final_bundles f WHERE f.session_id = ? AND f.bundle_revision = ? AND ${sessionGuard}`,
+            )
+            .bind(t, bundle.bundleRevision, reason, actorProviderId, sessionId, expectedRevision, ...guardParams),
+          insertBundleGuarded(bundle, now, guardSql, guardParams),
+          db
+            .prepare(
+              `DELETE FROM final_bundles WHERE session_id = ? AND bundle_revision = ? AND ${sessionGuard}
+                 AND EXISTS (SELECT 1 FROM superseded_finals x
+                             WHERE x.session_id = ? AND x.bundle_revision = ? AND x.superseded_at = ?)`,
+            )
+            .bind(sessionId, expectedRevision, ...guardParams, sessionId, expectedRevision, t),
+          db
+            .prepare(
+              `UPDATE sessions SET status = 'NEEDS_REVIEW', current_bundle_revision = ?, status_reason = ?, updated_at = ?
+               WHERE ${guardSql}
+                 AND NOT EXISTS (SELECT 1 FROM final_bundles f WHERE f.session_id = ?)
+                 AND EXISTS (SELECT 1 FROM bundles b WHERE b.session_id = ? AND b.revision = ?)`,
+            )
+            .bind(bundle.bundleRevision, `Amending approved revision ${expectedRevision}`, t, ...guardParams, sessionId, sessionId, bundle.bundleRevision),
+        ]);
+        applied = changes(results[3]) === 1;
+        if (!applied && changes(results[0]) === 1) {
+          // Partial application is impossible by construction; fail loudly if it ever happens.
+          throw new Error("amendSession: inconsistent batch result");
+        }
+      } catch (err) {
+        if (isUniqueViolation(err)) return fail("stale_revision", "revision already exists");
+        throw err;
+      }
+      if (applied) return { ok: true, value: bundle };
+      const s = await readSession(sessionId);
+      if (!s) return fail("not_found");
+      if (s.currentBundleRevision !== expectedRevision) {
+        return fail("stale_revision", `current revision is ${s.currentBundleRevision}`);
+      }
+      return fail("invalid_state", `status is ${s.status}`);
+    },
+
+    async listSupersededRevisions(sessionId) {
+      const { results } = await db
+        .prepare("SELECT * FROM superseded_finals WHERE session_id = ? ORDER BY bundle_revision DESC")
+        .bind(sessionId)
+        .all<Row>();
+      return results.map((r) => {
+        const b = parseBundleJson(r.bundle_json);
+        return SupersededRevision.parse({
+          sessionId: r.session_id,
+          bundleRevision: Number(r.bundle_revision),
+          approvalId: r.approval_id,
+          finalizedAt: r.finalized_at,
+          supersededAt: r.superseded_at,
+          supersededByRevision: Number(r.superseded_by_revision),
+          reason: r.reason,
+          actorProviderId: r.actor_provider_id,
+          amountCents: b.billing.amountCents,
+        });
+      });
+    },
+
+    async devResetSession(sessionId) {
+      const tables: [string, string][] = [
+        ["evidence", "session_id"],
+        ["bundles", "session_id"],
+        ["approvals", "session_id"],
+        ["final_bundles", "session_id"],
+        ["superseded_finals", "session_id"],
+        ["pending_deliveries", "session_id"],
+        ["file_deliveries", "session_id"],
+        ["client_snapshots", "session_id"],
+        ["run_events", "session_id"],
+      ];
+      // Keep the session row and its processing_revision: workflow instance ids
+      // (session + processing revision) persist in the Workflows runtime, so the next
+      // sync must start a NEW processing revision rather than reuse an old id.
+      await db.batch([
+        ...tables.map(([t, col]) => db.prepare(`DELETE FROM ${t} WHERE ${col} = ?`).bind(sessionId)),
+        db
+          .prepare(
+            `UPDATE sessions SET status = 'WAITING_FOR_EVIDENCE', current_bundle_revision = 0, workflow_id = NULL,
+               status_reason = 'Reset (dev)', updated_at = ? WHERE id = ?`,
+          )
+          .bind(new Date().toISOString(), sessionId),
+      ]);
     },
 
     // ------------------------------------------------ approvals

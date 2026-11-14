@@ -25,6 +25,7 @@ import { onSessionCompleted, processFileDelivery, type DeliveryDeps } from "./se
 import { defaultAiSettings } from "./api/settings-v2";
 import { createRunRecorder } from "./history";
 import { clientKnownTerms } from "./clients";
+import { finalizeDirect } from "./services/approval/amend";
 
 export { SessionWorkflow } from "./workflow";
 
@@ -44,6 +45,18 @@ function jobDeps(env: Env): JobDeps {
     clock,
     recorder: delivery.recorder,
     processFileDelivery: (deliveryId) => processFileDelivery(delivery, deliveryId),
+    // Amended revisions finalize without a live workflow (same steps, idempotent).
+    finalizeDirect: (approval) =>
+      finalizeDirect(
+        {
+          repo: delivery.repo,
+          clock,
+          recorder: delivery.recorder,
+          resolveClient: (appt) => delivery.repo.getClient(appt.providerId, appt.clientRef),
+          onCompleted: (sessionId) => onSessionCompleted(delivery, sessionId),
+        },
+        approval,
+      ),
   };
 }
 

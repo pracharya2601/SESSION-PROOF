@@ -1,9 +1,10 @@
 /** Review, approval and approved-export routes (Agent 16). */
 import { Hono, type Context } from "hono";
-import { ApprovalRequest, ReviewRequest, workflowInstanceId, type RunRecorder } from "../contracts";
+import { AmendRequest, ApprovalRequest, ReviewRequest, workflowInstanceId, type RunRecorder } from "../contracts";
 import { exportJson, loadFinalForActor, renderExportHtml } from "../export/index";
 import { apiError } from "../security/index";
 import { ServiceError, approveSession, saveReview } from "../services/approval/index";
+import { amendSession } from "../services/approval/amend";
 import { safeRecord } from "../history/index";
 import type { Actor, ApiDeps, AppBindings } from "./deps";
 import { ok } from "./respond";
@@ -32,7 +33,7 @@ async function recordForSession(
   deps: ApiDeps,
   actor: Actor,
   sessionId: string,
-  event: Pick<RecordInput, "stage" | "status" | "label" | "meta" | "idSuffix">,
+  event: Pick<RecordInput, "stage" | "status" | "label" | "meta" | "idSuffix" | "at">,
 ): Promise<void> {
   if (!deps.recorder) return;
   try {
@@ -100,6 +101,9 @@ export function reviewRoutes(deps: ApiDeps): Hono<AppBindings> {
         label: "Provider approved",
         meta: { bundleRevision: res.approval.bundleRevision },
         idSuffix: `r${res.approval.bundleRevision}`,
+        // Stamp with the durable approval time so it orders before finalization events
+        // (amendments finalize synchronously inside approveSession).
+        at: res.approval.approvedAt,
       });
       return ok(c, res, res.finalization === "finalized" ? 200 : 202);
     } catch (err) {
@@ -131,6 +135,29 @@ export function reviewRoutes(deps: ApiDeps): Hono<AppBindings> {
     } catch (err) {
       return fromServiceError(c, err);
     }
+  });
+
+  // Amend: reopen a COMPLETED session as a new revision that must be re-approved.
+  app.post("/api/sessions/:id/amend", async (c) => {
+    const body = await readJson(c);
+    if (!body.ok) return apiError(c, 400, "INVALID_REQUEST", "Body must be JSON", false);
+    const parsed = AmendRequest.safeParse(body.value);
+    if (!parsed.success) {
+      return apiError(c, 400, "INVALID_REQUEST", parsed.error.issues.map((i) => `${i.path.join(".") || "body"}: ${i.message}`).join("; "), false);
+    }
+    try {
+      return ok(c, await amendSession(deps, c.get("actor"), c.req.param("id"), parsed.data));
+    } catch (err) {
+      return fromServiceError(c, err);
+    }
+  });
+
+  // Previously approved revisions replaced by amendments (audit trail).
+  app.get("/api/sessions/:id/revisions", async (c) => {
+    const actor = c.get("actor");
+    const session = await deps.repo.getSessionForProvider(actor.providerId, c.req.param("id"));
+    if (!session) return apiError(c, 404, "NOT_FOUND", "Session not found", false);
+    return ok(c, await deps.repo.listSupersededRevisions(session.id));
   });
 
   return app;

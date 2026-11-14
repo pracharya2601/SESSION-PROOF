@@ -37,6 +37,8 @@ export interface JobDeps {
   maxAttempts?: number;
   /** v2: performs an auto drive upload (payload.deliveryId). Injected by the composition root. */
   processFileDelivery?: (deliveryId: string) => Promise<unknown>;
+  /** Finalize an approval when no live workflow is waiting (amendments). */
+  finalizeDirect?: (approval: ApprovalRecord) => Promise<void>;
   /** v3: run history (best-effort; never fails discovery). */
   recorder?: RunRecorder;
 }
@@ -143,7 +145,17 @@ export async function discoverSessions(deps: JobDeps, opts: DiscoverOptions = {}
 export async function notifyApproval(deps: JobDeps, approval: ApprovalRecord): Promise<void> {
   const session = await deps.repo.getSession(approval.sessionId);
   if (!session) throw new Error("notifyApproval: session not found");
-  const instance = await deps.workflow.get(workflowInstanceId(session.id, session.processingRevision));
+  const instance = await deps.workflow.get(workflowInstanceId(session.id, session.processingRevision)).catch(() => null);
+  // Amended revisions: the original workflow already completed, so nothing is waiting for
+  // the event. Finalize directly (same durable steps, idempotent) instead.
+  if (deps.finalizeDirect) {
+    const st = instance ? await instance.status().then((x) => x.status as string).catch(() => "unknown") : "missing";
+    if (["complete", "errored", "terminated", "missing"].includes(st)) {
+      await deps.finalizeDirect(approval);
+      return;
+    }
+  }
+  if (!instance) throw new Error("notifyApproval: workflow instance not found");
   await instance.sendEvent({
     type: APPROVAL_EVENT_TYPE,
     payload: { approvalId: approval.id, sessionId: approval.sessionId, bundleRevision: approval.bundleRevision },

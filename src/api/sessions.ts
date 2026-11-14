@@ -48,12 +48,17 @@ export function sessionRoutes(deps: ApiDeps): Hono<AppBindings> {
     ]);
     // Defense in depth: appointment must belong to the same provider.
     if (!appointment || appointment.providerId !== actor.providerId) return notFound();
+    // Only the CURRENT revision's approval/final count: after an amendment the previous
+    // approval belongs to a superseded revision (see /revisions).
+    const currentApproval = approval && approval.bundleRevision === session.currentBundleRevision ? approval : null;
     const detail: SessionDetail = {
       session,
       appointment,
       bundle,
-      approval,
-      finalized: final !== null || approval?.finalizationStatus === "finalized",
+      approval: currentApproval,
+      finalized:
+        (final !== null && final.bundleRevision === session.currentBundleRevision) ||
+        currentApproval?.finalizationStatus === "finalized",
     };
     return ok(c, detail);
   });

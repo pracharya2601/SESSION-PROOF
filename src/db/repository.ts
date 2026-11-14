@@ -31,6 +31,7 @@ import type {
   RunEvent,
   RunSummary,
   TemplateInput,
+  SupersededRevision,
 } from "../contracts";
 
 /** v2 adds "file_delivery": an auto drive upload after completion (payload: { deliveryId }). */
@@ -223,4 +224,22 @@ export interface Repository {
   listRunEvents(runId: string, providerId: string): Promise<RunEvent[]>;
   /** Runs aggregated from events, newest first; status filter optional; cursor pagination ≤50. */
   listRuns(providerId: string, opts: { status?: RunSummary["status"]; sessionId?: string; limit: number; cursor: string | null }): Promise<{ runs: RunSummary[]; nextCursor: string | null }>;
+
+  // ================================================================ amendments
+  /**
+   * Atomically reopen a COMPLETED session: move its final bundle (revision =
+   * expectedRevision) to superseded_finals, insert `bundle` as revision
+   * expectedRevision+1 and set status NEEDS_REVIEW. All-or-nothing.
+   */
+  amendSession(
+    sessionId: string,
+    expectedRevision: number,
+    bundle: SessionBundle,
+    reason: string,
+    actorProviderId: string,
+    now: Date,
+  ): Promise<ConditionalResult<SessionBundle>>;
+  listSupersededRevisions(sessionId: string): Promise<SupersededRevision[]>;
+  /** DEV ONLY: delete a session's data and return it to WAITING_FOR_EVIDENCE (keeps processing revision). */
+  devResetSession(sessionId: string): Promise<void>;
 }

@@ -29,6 +29,7 @@ export const STAGE_LABELS: Record<RunStage, string> = {
   delivery_email: "Email",
   completed: "Completed",
   failed: "Failed",
+  amended: "Amended",
 };
 
 export function stageLabel(stage: string): string {

@@ -22,6 +22,7 @@ import { RunTimeline } from "../components/runs/RunTimeline";
 import { ApprovalRecordPanel } from "../components/review/ApprovalRecordPanel";
 import { ApproveButton } from "../components/review/ApproveButton";
 import { FilesCard } from "../components/review/FilesCard";
+import { AmendBanner, AmendCard } from "../components/review/AmendCard";
 import { Celebration } from "../components/review/Celebration";
 import { RevisionBadge } from "../components/review/RevisionBadge";
 import { Section } from "../components/review/Section";
@@ -591,6 +592,7 @@ export default function Review(props: { sessionId: string; onBack: () => void })
               </AnimatePresence>
             </motion.section>
 
+            <AmendBanner detail={detail} />
             {completed && <FilesCard sessionId={sessionId} revision={detail.approval?.bundleRevision ?? revision} />}
 
             <TimePanel time={bundle.documents.timeSummary} />
@@ -627,6 +629,13 @@ export default function Review(props: { sessionId: string; onBack: () => void })
               </motion.section>
             )}
             {detail.approval && <ApprovalRecordPanel approval={detail.approval} timezone={tz} completed={completed} />}
+            <AmendCard
+              detail={detail}
+              onChanged={async () => {
+                const d = await fetchDetail();
+                if (d) setValues(initialValues(d.bundle));
+              }}
+            />
           </motion.aside>
         </div>
       )}

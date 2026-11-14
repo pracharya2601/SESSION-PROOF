@@ -75,6 +75,13 @@ export async function createV3Harness(opts: { variant?: string } = {}): Promise<
   jobs.recorder = recorder;
   const deliveryDeps = { repo, env, clock, fetch: h.cloud.fetch, recorder };
   jobs.processFileDelivery = (deliveryId: string) => h.v2.delivery.processFileDelivery(deliveryDeps, deliveryId);
+  // Mirrors src/index.ts: amended revisions finalize without a live workflow.
+  const amendMod = await import("../../src/services/approval/amend");
+  jobs.finalizeDirect = (approval: any) =>
+    amendMod.finalizeDirect(
+      { repo, clock, recorder, resolveClient: resolveClient as any, onCompleted: (sid: string) => h.v2.delivery.onSessionCompleted(deliveryDeps, sid) },
+      approval,
+    );
 
   const makeExtractor = () =>
     mods.ai.createExtractor(env, {

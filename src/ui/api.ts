@@ -12,6 +12,7 @@ import type {
   ReviewRequest,
   SessionBundle,
   SessionDetail,
+  SupersededRevision,
   SyncSettings,
   SyncSettingsView,
   // v2
@@ -135,6 +136,14 @@ export const api = {
   logout: () => dataOf<unknown>("POST", "/auth/logout", {}),
   saveReview: (id: string, req: ReviewRequest) =>
     dataOf<SessionBundle>("PATCH", `/api/sessions/${enc(id)}/review`, req),
+  /** Reopen a COMPLETED session as a new revision (requires re-approval). */
+  amendSession: (id: string, req: { expectedRevision: number; reason: string }) =>
+    dataOf<SessionBundle>("POST", `/api/sessions/${encodeURIComponent(id)}/amend`, req),
+  /** Approved revisions that amendments replaced (audit trail). */
+  listRevisions: (id: string) => dataOf<SupersededRevision[]>("GET", `/api/sessions/${encodeURIComponent(id)}/revisions`),
+  /** DEV ONLY: reset a synthetic session; the next sync re-processes it. */
+  devResetSession: (id: string) =>
+    dataOf<{ reset: boolean; sessionId: string }>("POST", `/api/dev/reset-session/${encodeURIComponent(id)}`, {}),
   approve: (id: string, req: ApprovalRequest): Promise<{ status: number; data: ApproveResponse }> =>
     request<ApproveResponse>("POST", `/api/sessions/${enc(id)}/approve`, req),
 

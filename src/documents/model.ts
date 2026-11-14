@@ -315,6 +315,7 @@ const ATTESTATION_FIELD: Record<ProviderAttestation["field"], string> = {
   duration: "Duration",
   participant_direction: "Participant direction",
   participant_choices: "Participant choices",
+  amendment_reason: "Amendment reason",
 };
 
 function approvalSection(c: Ctx, key: string): DocBlock[] {
@@ -460,6 +461,16 @@ export function buildDocModel(kind: FileKind, input: DocModelInput): DocModel {
       tone: "draft",
       text: `${DRAFT_BANNER}\nThis is a preview of revision r${revision}. It has not been approved by the provider and may change.`,
     });
+  }
+  // Amended revision: say which approved revision it replaces and why (reason is provider-entered text).
+  const amendment = [...b.attestations].reverse().find((x) => x.field === "amendment_reason");
+  if (amendment) {
+    blocks.push({
+      type: "callout",
+      tone: "warning",
+      text: `Amended revision r${revision}\nThis revision replaces a previously approved revision. Reason: ${amendment.text}`,
+    });
+    meta.push({ label: "Amended", value: "Yes" });
   }
   if (kind === "invoice") {
     blocks.push({

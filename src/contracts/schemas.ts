@@ -165,7 +165,7 @@ export type SessionFacts = z.infer<typeof SessionFacts>;
 export const ProviderAttestation = z.object({
   id: Id,
   /** v3 adds participant_direction (text = "yes"/"no" + optional choices, see ReviewEdits). */
-  field: z.enum(["progress", "duration", "participant_direction", "participant_choices"]),
+  field: z.enum(["progress", "duration", "participant_direction", "participant_choices", "amendment_reason"]),
   text: ShortText,
   actorProviderId: Id,
   attestedAt: Instant,
