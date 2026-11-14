@@ -1,3 +1,7 @@
+import { PencilLine, RotateCcw, Save } from "lucide-react";
+import { Button, Field, Input, Textarea } from "../../design";
+import { Section } from "./Section";
+
 /** Mirrors contracts MAX_CONFIRMED_MINUTES (kept local so zod is not bundled). Server re-validates. */
 const MAX_CONFIRMED_MINUTES = 720;
 
@@ -28,63 +32,59 @@ export function CorrectionForm(props: {
   const progressTooLong = props.values.progress.length > 2000;
   const canSave = props.dirty && !props.saving && !minutesError && !progressTooLong;
   return (
-    <section className="card rv-form" aria-label="Corrections">
-      <h2>Provider corrections</h2>
+    <Section label="Corrections" title="Provider corrections" icon={<PencilLine size={18} />} className="rv-form">
       <form
-        className="stack"
+        className="rv-form-body"
         onSubmit={(e) => {
           e.preventDefault();
           if (canSave) props.onSave();
         }}
       >
-        <div className="rv-field">
-          <label htmlFor="rv-progress">Progress confirmation</label>
-          <textarea
-            id="rv-progress"
+        <Field
+          id="rv-progress"
+          label="Progress confirmation"
+          hint="Your own statement of progress. It is recorded as provider confirmed."
+        >
+          <Textarea
             rows={3}
             maxLength={2000}
             value={props.values.progress}
-            aria-describedby="rv-progress-help"
             onChange={(e) => props.onChange({ ...props.values, progress: e.target.value })}
           />
-          <small id="rv-progress-help" className="muted">
-            Your own statement of progress. It is recorded as provider confirmed.
-          </small>
-        </div>
-        <div className="rv-field">
-          <label htmlFor="rv-minutes">Confirmed minutes</label>
-          <input
-            id="rv-minutes"
+        </Field>
+        <Field
+          id="rv-minutes"
+          label="Confirmed minutes"
+          error={minutesError ? <span role="alert">{minutesError}</span> : undefined}
+          hint={
+            <>
+              Actual duration you attest to (whole minutes, 1–{MAX_CONFIRMED_MINUTES}). Scheduled was {props.scheduledMinutes} min;
+              that is not a confirmation.
+              {props.currentConfirmed !== null ? ` Currently confirmed: ${props.currentConfirmed} min.` : " Not yet confirmed."}
+            </>
+          }
+        >
+          <Input
+            className="rv-minutes-input"
             type="number"
             inputMode="numeric"
             min={1}
             max={MAX_CONFIRMED_MINUTES}
             step={1}
+            placeholder="—"
             value={props.values.minutes}
-            aria-invalid={minutesError ? true : undefined}
-            aria-describedby={minutesError ? "rv-minutes-help rv-minutes-error" : "rv-minutes-help"}
             onChange={(e) => props.onChange({ ...props.values, minutes: e.target.value })}
           />
-          <small id="rv-minutes-help" className="muted">
-            Actual duration you attest to (whole minutes, 1–{MAX_CONFIRMED_MINUTES}). Scheduled was{" "}
-            {props.scheduledMinutes} min; that is not a confirmation.
-            {props.currentConfirmed !== null ? ` Currently confirmed: ${props.currentConfirmed} min.` : " Not yet confirmed."}
-          </small>
-          {minutesError && (
-            <small id="rv-minutes-error" className="rv-field-error" role="alert">
-              {minutesError}
-            </small>
-          )}
-        </div>
-        <div className="row">
-          <button type="submit" className="btn btn-primary" disabled={!canSave}>
+        </Field>
+        <div className="rv-row">
+          <Button type="submit" variant="primary" loading={props.saving} disabled={!canSave} icon={<Save size={16} />}>
             {props.saving ? "Saving…" : "Save changes"}
-          </button>
-          <button type="button" className="btn" disabled={!props.dirty || props.saving} onClick={props.onDiscard}>
+          </Button>
+          <Button variant="ghost" disabled={!props.dirty || props.saving} onClick={props.onDiscard} icon={<RotateCcw size={16} />}>
             Discard
-          </button>
+          </Button>
         </div>
       </form>
-    </section>
+    </Section>
   );
 }

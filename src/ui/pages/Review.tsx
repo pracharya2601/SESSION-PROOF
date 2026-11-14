@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import { AlertOctagon, ArrowLeft, CheckCircle2, Info, Loader2, RefreshCw } from "lucide-react";
 import type { ReviewEdits, SessionBundle, SessionDetail } from "../../contracts";
 import { api, ApiClientError } from "../api";
+import { Button, Skeleton, StatusPill } from "../design";
 import { SessionHeader } from "../components/review/SessionHeader";
 import { DocumentSections } from "../components/review/DocumentSections";
 import { EvidencePanel } from "../components/review/EvidencePanel";
@@ -10,7 +13,13 @@ import { TimePanel } from "../components/review/TimePanel";
 import { BillingPanel } from "../components/review/BillingPanel";
 import { CorrectionForm, validateMinutes, type CorrectionValues } from "../components/review/CorrectionForm";
 import { ApprovalRecordPanel } from "../components/review/ApprovalRecordPanel";
+import { ApproveButton } from "../components/review/ApproveButton";
+import { FilesCard } from "../components/review/FilesCard";
+import { Celebration } from "../components/review/Celebration";
+import { RevisionBadge } from "../components/review/RevisionBadge";
+import { Section } from "../components/review/Section";
 import { formatCents } from "../components/review/format";
+import { rvItem, rvItemReduced, rvSpring, rvStagger, useMotionOK } from "../components/review/motion";
 import "../components/review/review.css";
 
 const POLL_MS = 2000;
@@ -75,8 +84,14 @@ function initialValues(bundle: SessionBundle | null): CorrectionValues {
   return { progress: "", minutes: c !== null ? String(c) : "" };
 }
 
+function blockerLines(d: SessionDetail | null): string[] | undefined {
+  const issues = d?.bundle?.checks.issues.filter((i) => i.blocking) ?? [];
+  return issues.length > 0 ? issues.map((i) => `${i.field}: ${i.message}`) : undefined;
+}
+
 export default function Review(props: { sessionId: string; onBack: () => void }) {
   const { sessionId } = props;
+  const motionOK = useMotionOK();
   const [detail, setDetail] = useState<SessionDetail | null>(null);
   const [loadError, setLoadError] = useState<UiError | null>(null);
   const [loading, setLoading] = useState(true);
@@ -88,6 +103,7 @@ export default function Review(props: { sessionId: string; onBack: () => void })
   const [error, setError] = useState<UiError | null>(null);
   const [highlight, setHighlight] = useState<string | null>(null);
   const [focusTick, setFocusTick] = useState(0);
+  const [celebrate, setCelebrate] = useState(0);
   const idemCache = useRef(new Map<string, string>());
   const mounted = useRef(true);
   const pollToken = useRef(0);
@@ -135,6 +151,7 @@ export default function Review(props: { sessionId: string; onBack: () => void })
         if (d.session.status === "COMPLETED") {
           setFinalizing(false);
           setNotice(`Completed — revision ${d.approval?.bundleRevision ?? d.session.currentBundleRevision} finalized.`);
+          setCelebrate((c) => c + 1);
           return;
         }
       }
@@ -187,6 +204,7 @@ export default function Review(props: { sessionId: string; onBack: () => void })
     return edits.confirmedMinutes !== undefined || edits.progressConfirmation !== undefined ? (edits as ReviewEdits) : null;
   }
 
+  // 409: refetch the record but keep the user's typed form values (never overwrite the form).
   async function handleConflict() {
     setError({ message: "This record changed elsewhere — reloaded. Please re-review." });
     setNotice(null);
@@ -225,6 +243,7 @@ export default function Review(props: { sessionId: string; onBack: () => void })
 
   async function onApprove() {
     if (!bundle || approving) return;
+    // Approve exactly the displayed (saved) revision.
     const rev = bundle.bundleRevision;
     const idempotencyKey = getOrCreateIdemKey(idemCache.current, sessionId, rev);
     setApproving(true);
@@ -240,39 +259,77 @@ export default function Review(props: { sessionId: string; onBack: () => void })
         void pollUntilCompleted();
       } else {
         const d = await fetchDetail();
-        if (d && d.session.status === "COMPLETED") setNotice(`Completed — revision ${res.data.approval.bundleRevision} finalized.`);
-        else void pollUntilCompleted();
+        if (d && d.session.status === "COMPLETED") {
+          setNotice(`Completed — revision ${res.data.approval.bundleRevision} finalized.`);
+          setCelebrate((c) => c + 1);
+        } else void pollUntilCompleted();
       }
     } catch (e) {
       if (!mounted.current) return;
       if (e instanceof ApiClientError && e.status === 409) await handleConflict();
       else if (e instanceof ApiClientError && e.status === 422) {
         const ue = toUiError(e);
-        setError({ ...ue, message: `Approval blocked: ${ue.message}` });
-        await fetchDetail();
+        const d = await fetchDetail();
+        setError({ ...ue, message: `Approval blocked: ${ue.message}`, details: ue.details ?? blockerLines(d) });
       } else setError(toUiError(e));
     } finally {
       if (mounted.current) setApproving(false);
     }
   }
 
+  const onEvidence = useCallback((id: string) => {
+    setHighlight(id);
+    setFocusTick((t) => t + 1);
+  }, []);
+
   // ----- render
   if (loading && !detail) {
     return (
-      <div className="rv-page">
-        <p className="muted" role="status">Loading session…</p>
+      <div className="rv-page" aria-busy="true">
+        <p className="rv-sr" role="status">
+          Loading session…
+        </p>
+        <div className="rv-hero rv-skel-hero">
+          <Skeleton width={120} height={12} />
+          <Skeleton width="45%" height={30} />
+          <Skeleton width="30%" height={14} />
+        </div>
+        <div className="rv-grid">
+          <div className="rv-main">
+            <div className="ds-card ds-pad-md rv-card rv-skel-card">
+              <Skeleton lines={6} />
+            </div>
+            <div className="ds-card ds-pad-md rv-card rv-skel-card">
+              <Skeleton lines={4} />
+            </div>
+          </div>
+          <div className="rv-rail">
+            <div className="ds-card ds-pad-md rv-card rv-skel-card">
+              <Skeleton width="40%" height={36} />
+              <Skeleton lines={2} />
+            </div>
+            <div className="ds-card ds-pad-md rv-card rv-skel-card">
+              <Skeleton lines={3} />
+            </div>
+          </div>
+        </div>
       </div>
     );
   }
   if (!detail) {
     return (
       <div className="rv-page">
-        <button type="button" className="btn" onClick={props.onBack}>
-          ← Back to sessions
-        </button>
-        <div className="error-box" role="alert">
-          {loadError?.message ?? "Session could not be loaded."}
-          {loadError?.correlationId && <div className="muted">Reference: {loadError.correlationId}</div>}
+        <div>
+          <Button variant="ghost" size="sm" onClick={props.onBack} icon={<ArrowLeft size={16} />}>
+            Back to sessions
+          </Button>
+        </div>
+        <div className="rv-alert rv-alert-danger" role="alert">
+          <AlertOctagon size={18} aria-hidden="true" />
+          <div>
+            {loadError?.message ?? "Session could not be loaded."}
+            {loadError?.correlationId && <div className="rv-muted rv-small">Reference: {loadError.correlationId}</div>}
+          </div>
         </div>
       </div>
     );
@@ -290,69 +347,163 @@ export default function Review(props: { sessionId: string; onBack: () => void })
   else if (!bundle.checks.canApprove) approveReason = "Blocking documentation checks must be fixed before approval.";
   const canApprove = approveReason === null && !approving;
 
-  return (
-    <div className="rv-page">
-      <div className="row">
-        <button type="button" className="btn" onClick={props.onBack}>
-          ← Back to sessions
-        </button>
-      </div>
+  const itemV = motionOK ? rvItem : rvItemReduced;
 
+  return (
+    <motion.div className="rv-page" variants={rvStagger} initial="hidden" animate="show">
       <SessionHeader
         appointment={detail.appointment}
         session={detail.session}
         revision={revision}
         provenance={bundle?.provenance ?? null}
         serviceDescription={bundle?.config.plan.serviceDescription}
+        onBack={props.onBack}
       />
 
-      <div aria-live="polite">
-        {notice && <div className={`rv-banner ${completed ? "rv-banner-ok" : "rv-banner-info"}`}>{notice}</div>}
-        {finalizing && !notice && <div className="rv-banner rv-banner-info">Approved — finalizing…</div>}
-      </div>
-      {error && (
-        <div className="error-box" role="alert">
-          {error.message}
-          {error.details && error.details.length > 0 && (
-            <ul className="rv-err-details">
-              {error.details.map((d, i) => (
-                <li key={i}>{d}</li>
-              ))}
-            </ul>
+      <div aria-live="polite" className="rv-alerts">
+        <AnimatePresence initial={false}>
+          {notice && (
+            <motion.div
+              key={"n:" + notice}
+              className={`rv-alert ${completed ? "rv-alert-ok" : "rv-alert-info"}`}
+              initial={motionOK ? { opacity: 0, y: -8, scale: 0.98 } : { opacity: 0 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, height: 0, marginTop: 0 }}
+              transition={rvSpring}
+            >
+              {completed ? <CheckCircle2 size={18} aria-hidden="true" /> : <Info size={18} aria-hidden="true" />}
+              <span>{notice}</span>
+            </motion.div>
           )}
-          {error.correlationId && <div className="muted">Reference: {error.correlationId}</div>}
-        </div>
-      )}
+          {finalizing && !notice && (
+            <motion.div key="finalizing" className="rv-alert rv-alert-info" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+              <Loader2 size={18} className="ds-spin" aria-hidden="true" />
+              <span>Approved — finalizing…</span>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+      <AnimatePresence initial={false}>
+        {error && (
+          <motion.div
+            key="error"
+            className="rv-alert rv-alert-danger"
+            role="alert"
+            initial={motionOK ? { opacity: 0, x: -12 } : { opacity: 0 }}
+            animate={motionOK ? { opacity: 1, x: [-12, 6, -3, 0] } : { opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.45 }}
+          >
+            <AlertOctagon size={18} aria-hidden="true" />
+            <div>
+              {error.message}
+              {error.details && error.details.length > 0 && (
+                <ul className="rv-err-details">
+                  {error.details.map((d, i) => (
+                    <li key={i}>{d}</li>
+                  ))}
+                </ul>
+              )}
+              {error.correlationId && <div className="rv-muted rv-small">Reference: {error.correlationId}</div>}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
       {loadError && detail && (
-        <div className="error-box" role="alert">
-          Refresh failed: {loadError.message}
-          {loadError.correlationId && <span className="muted"> (Reference: {loadError.correlationId})</span>}
+        <div className="rv-alert rv-alert-danger" role="alert">
+          <AlertOctagon size={18} aria-hidden="true" />
+          <span>
+            Refresh failed: {loadError.message}
+            {loadError.correlationId && <span className="rv-muted"> (Reference: {loadError.correlationId})</span>}
+          </span>
         </div>
       )}
 
       {!bundle ? (
-        <div className="card">
+        <Section label="No bundle" className="rv-empty">
           <p>No review bundle is available for this session yet.</p>
-          <button type="button" className="btn" onClick={() => void fetchDetail()}>
-            Refresh
-          </button>
-        </div>
+          <div>
+            <Button icon={<RefreshCw size={16} />} onClick={() => void fetchDetail()}>
+              Refresh
+            </Button>
+          </div>
+        </Section>
       ) : (
         <div className="rv-grid">
-          <div className="rv-col">
-            <DocumentSections
-              sections={bundle.documents.sections}
-              onEvidence={(id) => {
-                setHighlight(id);
-                setFocusTick((t) => t + 1);
-              }}
-            />
+          <motion.div className="rv-main" variants={rvStagger}>
+            <DocumentSections sections={bundle.documents.sections} onEvidence={onEvidence} activeEvidence={highlight} />
             <PlanCoverage entries={bundle.documents.planCoverage} />
-            <ChecksPanel checks={bundle.checks} />
-          </div>
-          <div className="rv-col">
+            <EvidencePanel evidence={bundle.evidence} timezone={tz} highlightId={highlight} focusTick={focusTick} />
+          </motion.div>
+
+          <motion.aside className="rv-rail" variants={rvStagger} aria-label="Review summary and actions">
+            <motion.section
+              className={`ds-card ds-pad-md rv-card rv-status-card${completed ? " is-complete" : ""}`}
+              aria-label="Status"
+              variants={itemV}
+            >
+              <Celebration burstKey={celebrate} />
+              <div className="rv-status-row">
+                <StatusPill status={detail.session.status} />
+                {revision !== null && <RevisionBadge revision={revision} />}
+              </div>
+              <AnimatePresence mode="wait" initial={false}>
+                {completed ? (
+                  <motion.div
+                    key="done"
+                    className="rv-done"
+                    initial={motionOK ? { opacity: 0, scale: 0.9 } : { opacity: 0 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={rvSpring}
+                  >
+                    <svg className="rv-done-check" width="44" height="44" viewBox="0 0 44 44" aria-hidden="true">
+                      <motion.circle
+                        cx="22"
+                        cy="22"
+                        r="19"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2.5"
+                        initial={motionOK ? { pathLength: 0 } : false}
+                        animate={{ pathLength: 1 }}
+                        transition={{ duration: 0.6, ease: "easeOut" }}
+                      />
+                      <motion.path
+                        d="M13 22.5l6 6 12-13"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="3"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        initial={motionOK ? { pathLength: 0 } : false}
+                        animate={{ pathLength: 1 }}
+                        transition={{ duration: 0.45, delay: 0.45, ease: "easeOut" }}
+                      />
+                    </svg>
+                    <div>
+                      <p className="rv-done-title">Session completed</p>
+                      <p className="rv-muted rv-small">
+                        Revision {detail.approval?.bundleRevision ?? detail.session.currentBundleRevision} is final. Files are ready.
+                      </p>
+                    </div>
+                  </motion.div>
+                ) : finalizing || status === "APPROVED" ? (
+                  <motion.p key="fin" className="rv-muted rv-small" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+                    Approval recorded — generating final documents…
+                  </motion.p>
+                ) : editable ? (
+                  <motion.p key="todo" className="rv-muted rv-small" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+                    Review the documents, confirm the time, save, then approve.
+                  </motion.p>
+                ) : null}
+              </AnimatePresence>
+            </motion.section>
+
+            {completed && <FilesCard sessionId={sessionId} revision={detail.approval?.bundleRevision ?? revision} />}
+
             <TimePanel time={bundle.documents.timeSummary} />
-            <BillingPanel billing={bundle.billing} />
+            <BillingPanel billing={bundle.billing} revision={bundle.bundleRevision} />
+            <ChecksPanel checks={bundle.checks} revision={bundle.bundleRevision} />
             {editable && (
               <CorrectionForm
                 values={values}
@@ -366,30 +517,25 @@ export default function Review(props: { sessionId: string; onBack: () => void })
               />
             )}
             {editable && (
-              <section className="card rv-approve" aria-label="Approve">
-                <button
-                  type="button"
-                  className="btn btn-primary"
+              <motion.section className="ds-card ds-pad-md rv-card rv-approve" aria-label="Approve" variants={itemV}>
+                <ApproveButton
+                  revision={bundle.bundleRevision}
+                  pending={approving}
                   disabled={!canApprove}
-                  aria-describedby={approveReason ? "rv-approve-reason" : undefined}
+                  describedBy={approveReason ? "rv-approve-reason" : undefined}
                   onClick={() => void onApprove()}
-                >
-                  {approving ? "Approving…" : `Approve revision ${bundle.bundleRevision}`}
-                </button>
+                />
                 {approveReason && (
-                  <p id="rv-approve-reason" className="muted rv-approve-reason">
+                  <p id="rv-approve-reason" className="rv-muted rv-small rv-approve-reason">
                     {approveReason}
                   </p>
                 )}
-              </section>
+              </motion.section>
             )}
-            {detail.approval && (
-              <ApprovalRecordPanel approval={detail.approval} timezone={tz} completed={completed} />
-            )}
-            <EvidencePanel evidence={bundle.evidence} timezone={tz} highlightId={highlight} focusTick={focusTick} />
-          </div>
+            {detail.approval && <ApprovalRecordPanel approval={detail.approval} timezone={tz} completed={completed} />}
+          </motion.aside>
         </div>
       )}
-    </div>
+    </motion.div>
   );
 }

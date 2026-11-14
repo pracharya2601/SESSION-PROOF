@@ -7,7 +7,7 @@ export function workflowInstanceId(sessionId: string, processingRevision: number
 
 /** Delivery identity = operation type + target identity/revision. */
 export function deliveryKey(
-  operation: "process_session" | "approval_notification",
+  operation: "process_session" | "approval_notification" | "file_delivery",
   sessionId: string,
   revision: number,
 ): string {

@@ -21,31 +21,46 @@ import {
   type JobDeps,
 } from "./jobs";
 import { setWorkflowDepsFactory } from "./workflow";
+import { onSessionCompleted, processFileDelivery, type DeliveryDeps } from "./services/delivery";
+import { defaultAiSettings } from "./api/settings-v2";
 
 export { SessionWorkflow } from "./workflow";
 
 const clock: Clock = systemClock;
 
+function deliveryDeps(env: Env): DeliveryDeps {
+  return { repo: createRepository(env.DB), env, clock };
+}
+
 function jobDeps(env: Env): JobDeps {
+  const delivery = deliveryDeps(env);
   return {
-    repo: createRepository(env.DB),
+    repo: delivery.repo,
     workflow: env.SESSION_WORKFLOW,
     queue: env.SESSION_QUEUE,
     clock,
+    processFileDelivery: (deliveryId) => processFileDelivery(delivery, deliveryId),
   };
 }
 
-setWorkflowDepsFactory((env: Env) => ({
-  repo: createRepository(env.DB),
+setWorkflowDepsFactory((env: Env) => {
+  const repo = createRepository(env.DB);
+  return {
+  repo,
   // Live Vexo evidence needs an MCP client (separate MCP server, not wired here).
   // In live mode without one, retrieval fails loudly with "not_configured".
   evidence: createEvidenceSource(env),
-  extractor: createExtractor(env),
+  // Each provider's own AI settings (vendor, model, privacy toggles); PII scrubbing runs before any call.
+  extractor: createExtractor(env, {
+    resolveSettings: async (providerId: string) => (await repo.getAiSettings(providerId)) ?? defaultAiSettings(env),
+  }),
   match: matchEvidence,
   assemble: assembleBundle,
   clock,
   runtimeMode: (env.RUNTIME_MODE ?? "local") as RuntimeMode,
-}));
+  onCompleted: (sessionId: string) => onSessionCompleted(deliveryDeps(env), sessionId),
+  };
+});
 
 function apiDeps(env: Env): ApiDeps {
   const jobs = jobDeps(env);

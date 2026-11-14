@@ -6,5 +6,5 @@ export default defineConfig({
   root: "src/ui",
   plugins: [react()],
   build: { outDir: "../../dist/client", emptyOutDir: true },
-  server: { proxy: { "/api": "http://localhost:8787", "/auth": "http://localhost:8787" } },
+  server: { proxy: { "^/api/": "http://localhost:8787", "^/auth/": "http://localhost:8787" } },
 });

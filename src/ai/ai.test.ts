@@ -2,7 +2,14 @@ import { describe, expect, it } from "vitest";
 import { ExtractionRejectedError, type EvidenceItem, type ExtractionContext } from "../contracts";
 import type { Env } from "../env";
 import { demoAppointment, demoEvidence, demoFacts, demoPlan } from "../../fixtures/scenario";
-import { createExtractor, PROMPT_VERSION, SYSTEM_PROMPT, validateExtraction } from "./index";
+import {
+  createExtractor,
+  isExtractionOutputV2,
+  PROMPT_VERSION,
+  SYSTEM_PROMPT,
+  validateExtraction,
+  type ExtractionOutputV2,
+} from "./index";
 
 const ctx: ExtractionContext = { appointment: demoAppointment, plan: demoPlan, evidence: demoEvidence };
 
@@ -114,7 +121,11 @@ describe("live extractor", () => {
   it("returns validated facts from tool_use and sends the expected request", async () => {
     const { fn, calls } = fakeFetch([toolResponse(demoFacts)]);
     const out = await createExtractor(env(), { fetch: fn, retryDelayMs: 0 }).extractFacts(ctx);
-    expect(out).toEqual({ facts: demoFacts, mode: "live", model: "claude-test-model", promptVersion: PROMPT_VERSION });
+    expect(out).toMatchObject({ facts: demoFacts, mode: "live", model: "claude-test-model", promptVersion: PROMPT_VERSION });
+    expect(PROMPT_VERSION).toBe("extract-v2");
+    expect(isExtractionOutputV2(out)).toBe(true);
+    expect((out as ExtractionOutputV2).aiProvider).toBe("anthropic");
+    expect((out as ExtractionOutputV2).privacy).toEqual(expect.objectContaining({ scrubbed: expect.any(Boolean) }));
     expect(calls).toHaveLength(1);
     const call = calls[0]!;
     expect(call.url).toBe("https://api.anthropic.com/v1/messages");

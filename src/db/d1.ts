@@ -24,6 +24,15 @@ import {
   EvidenceItem,
   SyncSettings,
   DEFAULT_SYNC_SETTINGS,
+  AiSettings,
+  ConnectionProvider,
+  DEFAULT_EMAIL_SETTINGS,
+  DEFAULT_STORAGE_SETTINGS,
+  EmailSettings,
+  FileDelivery,
+  StorageSettings,
+  type OAuthPending,
+  type StoredConnection,
 } from "../contracts";
 import type {
   ApprovalWrite,
@@ -43,7 +52,7 @@ type Row = Record<string, unknown>;
 
 const PendingDeliverySchema = z.object({
   deliveryKey: z.string(),
-  operation: z.enum(["process_session", "approval_notification"]),
+  operation: z.enum(["process_session", "approval_notification", "file_delivery"]),
   sessionId: z.string(),
   revision: z.number().int(),
   payload: z.record(z.unknown()),
@@ -52,6 +61,30 @@ const PendingDeliverySchema = z.object({
   status: z.enum(["pending", "done", "exhausted"]),
   lastError: z.string().nullable(),
 });
+
+const StoredConnectionSchema = z.object({
+  providerId: z.string().min(1),
+  provider: ConnectionProvider,
+  accountEmail: z.string().nullable(),
+  scopes: z.array(z.string()),
+  encryptedTokens: z.string().min(1),
+  accessTokenExpiresAt: z.string().nullable(),
+  status: z.enum(["connected", "error"]),
+  lastError: z.string().nullable(),
+  connectedAt: z.string().min(1),
+  updatedAt: z.string().min(1),
+});
+
+const OAuthPendingSchema = z.object({
+  nonce: z.string().min(1),
+  providerId: z.string().min(1),
+  provider: ConnectionProvider,
+  codeVerifier: z.string().min(1),
+  returnTo: z.string(),
+  expiresAt: z.string().min(1),
+});
+
+type SettingsKind = "storage" | "email" | "ai";
 
 // ------------------------------------------------------------------ helpers
 
@@ -168,6 +201,50 @@ function rowToDelivery(r: Row): PendingDelivery {
   });
 }
 
+function rowToConnection(r: Row): StoredConnection {
+  return StoredConnectionSchema.parse({
+    providerId: r.provider_id,
+    provider: r.provider,
+    accountEmail: r.account_email ?? null,
+    scopes: JSON.parse(String(r.scopes_json)),
+    encryptedTokens: r.encrypted_tokens,
+    accessTokenExpiresAt: r.access_token_expires_at ?? null,
+    status: r.status,
+    lastError: r.last_error ?? null,
+    connectedAt: r.connected_at,
+    updatedAt: r.updated_at,
+  });
+}
+
+function rowToOAuthPending(r: Row): OAuthPending {
+  return OAuthPendingSchema.parse({
+    nonce: r.nonce,
+    providerId: r.provider_id,
+    provider: r.provider,
+    codeVerifier: r.code_verifier,
+    returnTo: r.return_to,
+    expiresAt: r.expires_at,
+  });
+}
+
+function rowToFileDelivery(r: Row): FileDelivery {
+  return FileDelivery.parse({
+    id: r.id,
+    sessionId: r.session_id,
+    bundleRevision: Number(r.bundle_revision),
+    target: r.target,
+    provider: r.provider,
+    files: JSON.parse(String(r.files_json)),
+    status: r.status,
+    externalId: r.external_id ?? null,
+    webUrl: r.web_url ?? null,
+    recipients: JSON.parse(String(r.recipients_json)),
+    error: r.error ?? null,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  });
+}
+
 function encodeCursor(startMs: number, id: string): string {
   return btoa(JSON.stringify([startMs, id]));
 }
@@ -244,6 +321,24 @@ export function createRepository(db: D1Database): Repository {
         iso(now),
         ...guardParams,
       );
+  }
+
+  async function readSettings(providerId: string, kind: SettingsKind): Promise<unknown | null> {
+    const r = await db
+      .prepare("SELECT value_json FROM provider_settings WHERE provider_id = ? AND kind = ?")
+      .bind(providerId, kind)
+      .first<Row>();
+    return r ? (JSON.parse(String(r.value_json)) as unknown) : null;
+  }
+
+  async function writeSettings(providerId: string, kind: SettingsKind, value: unknown, now: Date): Promise<void> {
+    await db
+      .prepare(
+        `INSERT INTO provider_settings (provider_id, kind, value_json, updated_at) VALUES (?, ?, ?, ?)
+         ON CONFLICT(provider_id, kind) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at`,
+      )
+      .bind(providerId, kind, JSON.stringify(value), iso(now))
+      .run();
   }
 
   const repo: Repository = {
@@ -885,6 +980,209 @@ export function createRepository(db: D1Database): Repository {
     },
 
     getDelivery: readDelivery,
+
+    // ================================================ v2
+    // ------------------------------------------------ per-provider settings
+    async getStorageSettings(providerId) {
+      const v = await readSettings(providerId, "storage");
+      return v === null ? StorageSettings.parse(DEFAULT_STORAGE_SETTINGS) : StorageSettings.parse(v);
+    },
+    async saveStorageSettings(providerId, settings, now) {
+      await writeSettings(providerId, "storage", StorageSettings.parse(settings), now);
+    },
+    async getEmailSettings(providerId) {
+      const v = await readSettings(providerId, "email");
+      return v === null ? EmailSettings.parse(DEFAULT_EMAIL_SETTINGS) : EmailSettings.parse(v);
+    },
+    async saveEmailSettings(providerId, settings, now) {
+      await writeSettings(providerId, "email", EmailSettings.parse(settings), now);
+    },
+    async getAiSettings(providerId) {
+      const v = await readSettings(providerId, "ai");
+      return v === null ? null : AiSettings.parse(v);
+    },
+    async saveAiSettings(providerId, settings, now) {
+      await writeSettings(providerId, "ai", AiSettings.parse(settings), now);
+    },
+    async getProviderIdentity(providerId) {
+      const r = await db.prepare("SELECT identity FROM providers WHERE id = ?").bind(providerId).first<Row>();
+      return r ? String(r.identity) : null;
+    },
+
+    // ------------------------------------------------ cloud connections
+    async getConnection(providerId, provider) {
+      const r = await db
+        .prepare("SELECT * FROM connections WHERE provider_id = ? AND provider = ?")
+        .bind(providerId, ConnectionProvider.parse(provider))
+        .first<Row>();
+      return r ? rowToConnection(r) : null;
+    },
+    async listConnections(providerId) {
+      const { results } = await db
+        .prepare("SELECT * FROM connections WHERE provider_id = ? ORDER BY provider ASC")
+        .bind(providerId)
+        .all<Row>();
+      return results.map(rowToConnection);
+    },
+    async saveConnection(conn) {
+      const c = StoredConnectionSchema.parse(conn);
+      await db
+        .prepare(
+          `INSERT INTO connections (provider_id, provider, account_email, scopes_json, encrypted_tokens,
+             access_token_expires_at, status, last_error, connected_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(provider_id, provider) DO UPDATE SET
+             account_email = excluded.account_email, scopes_json = excluded.scopes_json,
+             encrypted_tokens = excluded.encrypted_tokens, access_token_expires_at = excluded.access_token_expires_at,
+             status = excluded.status, last_error = excluded.last_error,
+             connected_at = excluded.connected_at, updated_at = excluded.updated_at`,
+        )
+        .bind(
+          c.providerId, c.provider, c.accountEmail, JSON.stringify(c.scopes), c.encryptedTokens,
+          c.accessTokenExpiresAt, c.status, c.lastError === null ? null : c.lastError.slice(0, MAX_ERROR_LEN),
+          c.connectedAt, c.updatedAt,
+        )
+        .run();
+    },
+    async deleteConnection(providerId, provider) {
+      await db
+        .prepare("DELETE FROM connections WHERE provider_id = ? AND provider = ?")
+        .bind(providerId, ConnectionProvider.parse(provider))
+        .run();
+    },
+    async saveOAuthPending(p) {
+      const v = OAuthPendingSchema.parse(p);
+      toMs(v.expiresAt);
+      await db
+        .prepare(
+          `INSERT INTO oauth_pending (nonce, provider_id, provider, code_verifier, return_to, expires_at)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(v.nonce, v.providerId, v.provider, v.codeVerifier, v.returnTo, v.expiresAt)
+        .run();
+    },
+    async consumeOAuthPending(nonce, now) {
+      // Single DELETE ... RETURNING: at most one caller ever gets the row.
+      // Expired rows are deleted too, but yield null.
+      const r = await db.prepare("DELETE FROM oauth_pending WHERE nonce = ? RETURNING *").bind(nonce).first<Row>();
+      if (!r) return null;
+      const p = rowToOAuthPending(r);
+      const exp = Date.parse(p.expiresAt);
+      if (!Number.isFinite(exp) || exp <= now.getTime()) return null;
+      return p;
+    },
+
+    // ------------------------------------------------ file deliveries
+    async createFileDelivery(d) {
+      const v = FileDelivery.parse(d);
+      await db
+        .prepare(
+          `INSERT INTO file_deliveries (id, session_id, bundle_revision, target, provider, files_json, status,
+             external_id, web_url, recipients_json, error, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(
+          v.id, v.sessionId, v.bundleRevision, v.target, v.provider, JSON.stringify(v.files), v.status,
+          v.externalId, v.webUrl, JSON.stringify(v.recipients), v.error, v.createdAt, v.updatedAt,
+        )
+        .run();
+    },
+    async updateFileDelivery(id, patch, now) {
+      const p = FileDelivery.pick({ status: true, externalId: true, webUrl: true, error: true })
+        .partial()
+        .parse(typeof patch.error === "string" ? { ...patch, error: patch.error.slice(0, MAX_ERROR_LEN) } : patch);
+      const sets: string[] = [];
+      const params: unknown[] = [];
+      if (p.status !== undefined) { sets.push("status = ?"); params.push(p.status); }
+      if (p.externalId !== undefined) { sets.push("external_id = ?"); params.push(p.externalId); }
+      if (p.webUrl !== undefined) { sets.push("web_url = ?"); params.push(p.webUrl); }
+      if (p.error !== undefined) { sets.push("error = ?"); params.push(p.error); }
+      sets.push("updated_at = ?");
+      params.push(iso(now));
+      await db
+        .prepare(`UPDATE file_deliveries SET ${sets.join(", ")} WHERE id = ?`)
+        .bind(...params, id)
+        .run();
+    },
+    async getFileDelivery(id) {
+      const r = await db.prepare("SELECT * FROM file_deliveries WHERE id = ?").bind(id).first<Row>();
+      return r ? rowToFileDelivery(r) : null;
+    },
+    async listFileDeliveries(sessionId) {
+      const { results } = await db
+        .prepare("SELECT * FROM file_deliveries WHERE session_id = ? ORDER BY created_at DESC, id DESC")
+        .bind(sessionId)
+        .all<Row>();
+      return results.map(rowToFileDelivery);
+    },
+    async listCompletedForProvider(providerId, limit, cursor) {
+      const pageSize = Math.min(Math.max(Math.floor(limit) || 1, 1), MAX_PAGE_SIZE);
+      const c = cursor ? decodeCursor(cursor) : null;
+      const sql = `
+        SELECT s.id, s.provider_id, s.appointment_id, s.occurrence_id, s.status, s.processing_revision,
+               s.current_bundle_revision, s.workflow_id, s.status_reason, s.created_at, s.updated_at,
+               a.start_ms AS appt_start_ms,
+               f.bundle_revision AS f_bundle_revision, f.approval_id AS f_approval_id,
+               f.finalized_at AS f_finalized_at, f.bundle_json AS f_bundle_json,
+               ap.id AS ap_id, ap.session_id AS ap_session_id, ap.bundle_revision AS ap_bundle_revision,
+               ap.approver_provider_id AS ap_approver_provider_id, ap.approved_at AS ap_approved_at,
+               ap.idempotency_key AS ap_idempotency_key, ap.request_fingerprint AS ap_request_fingerprint,
+               ap.finalization_status AS ap_finalization_status
+        FROM sessions s
+        JOIN appointments a ON a.id = s.appointment_id
+        JOIN final_bundles f ON f.session_id = s.id
+        JOIN approvals ap ON ap.id = f.approval_id
+        WHERE s.provider_id = ? AND s.status = 'COMPLETED'
+          ${c ? "AND (a.start_ms < ? OR (a.start_ms = ? AND s.id < ?))" : ""}
+        ORDER BY a.start_ms DESC, s.id DESC
+        LIMIT ?`;
+      const params: unknown[] = c ? [providerId, c.startMs, c.startMs, c.id, pageSize + 1] : [providerId, pageSize + 1];
+      const { results } = await db.prepare(sql).bind(...params).all<Row>();
+      const page = results.slice(0, pageSize);
+      const items = page.map((r) => ({
+        session: rowToSession(r),
+        final: rowToFinal({
+          session_id: r.id,
+          bundle_revision: r.f_bundle_revision,
+          approval_id: r.f_approval_id,
+          finalized_at: r.f_finalized_at,
+          bundle_json: r.f_bundle_json,
+        }),
+        approval: rowToApproval({
+          id: r.ap_id,
+          session_id: r.ap_session_id,
+          bundle_revision: r.ap_bundle_revision,
+          approver_provider_id: r.ap_approver_provider_id,
+          approved_at: r.ap_approved_at,
+          idempotency_key: r.ap_idempotency_key,
+          request_fingerprint: r.ap_request_fingerprint,
+          finalization_status: r.ap_finalization_status,
+        }),
+      }));
+      const last = page[page.length - 1];
+      const nextCursor = results.length > pageSize && last ? encodeCursor(Number(last.appt_start_ms), String(last.id)) : null;
+      return { items, nextCursor };
+    },
+    async enqueuePendingDelivery(d, now) {
+      const v = z
+        .object({
+          deliveryKey: z.string().min(1),
+          operation: PendingDeliverySchema.shape.operation,
+          sessionId: z.string().min(1),
+          revision: z.number().int(),
+          payload: z.record(z.unknown()),
+        })
+        .parse(d);
+      const t = iso(now);
+      await db
+        .prepare(
+          `INSERT OR IGNORE INTO pending_deliveries (delivery_key, operation, session_id, revision, payload_json, attempts,
+             next_attempt_at, status, last_error, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, 0, ?, 'pending', NULL, ?, ?)`,
+        )
+        .bind(v.deliveryKey, v.operation, v.sessionId, v.revision, JSON.stringify(v.payload), t, t, t)
+        .run();
+    },
   };
   return repo;
 }

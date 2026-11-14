@@ -1,0 +1,142 @@
+/* Vexo design tokens (U1). Dark-first; light via prefers-color-scheme or [data-theme="light"]. */
+:root {
+  color-scheme: dark;
+  --font: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* type scale */
+  --text-xs: 0.75rem;
+  --text-sm: 0.8125rem;
+  --text-md: 0.9375rem;
+  --text-lg: 1.0625rem;
+  --text-xl: 1.375rem;
+  --text-2xl: 1.75rem;
+  --text-3xl: 2.125rem;
+
+  /* spacing (4px grid) */
+  --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 20px; --sp-6: 24px; --sp-8: 32px; --sp-10: 40px; --sp-12: 48px;
+
+  /* radius */
+  --r-xs: 6px; --r-sm: 8px; --r-md: 12px; --r-lg: 16px; --r-xl: 22px; --r-full: 999px;
+
+  /* motion */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --dur-fast: 120ms; --dur: 200ms; --dur-slow: 360ms;
+
+  /* layout */
+  --sidebar-w: 248px;
+  --sidebar-w-collapsed: 72px;
+  --topbar-h: 60px;
+  --content-max: 1120px;
+
+  /* ---------- dark palette ---------- */
+  --bg: #07080d;
+  --bg-elev: #0d0f16;
+  --surface: rgba(22, 24, 34, 0.62);
+  --surface-solid: #12141d;
+  --surface-2: rgba(255, 255, 255, 0.035);
+  --surface-hover: rgba(255, 255, 255, 0.06);
+  --surface-active: rgba(255, 255, 255, 0.09);
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.15);
+  --text: #eceef4;
+  --text-2: #b4b9c6;
+  --muted: #a0a6b4;
+  --subtle: #858c9c;
+
+  --accent: #8d7dff;
+  --accent-strong: #a99dff;
+  --accent-2: #3fd3f2;
+  --accent-contrast: #ffffff;
+  --accent-grad: linear-gradient(135deg, #7c6bff 0%, #5b8cff 50%, #2fc6e8 100%);
+  --success: #3ddc97;
+  --warning: #f6b84b;
+  --danger: #ff6f6f;
+  --info: #62b2ff;
+  --fixture: #f6b84b;
+
+  --glow: 0 0 0 1px rgba(141, 125, 255, 0.35), 0 8px 32px -8px rgba(124, 107, 255, 0.55);
+  --ring: 0 0 0 2px var(--bg), 0 0 0 4px rgba(141, 125, 255, 0.85), 0 0 18px 2px rgba(141, 125, 255, 0.45);
+  --ring-danger: 0 0 0 2px var(--bg), 0 0 0 4px rgba(255, 111, 111, 0.85), 0 0 16px 2px rgba(255, 111, 111, 0.35);
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 8px 24px -10px rgba(0, 0, 0, 0.6);
+  --shadow-lg: 0 1px 0 rgba(255, 255, 255, 0.05) inset, 0 24px 60px -18px rgba(0, 0, 0, 0.75);
+  --blur: saturate(160%) blur(18px);
+
+  --aurora-1: rgba(124, 107, 255, 0.34);
+  --aurora-2: rgba(47, 198, 232, 0.22);
+  --aurora-3: rgba(236, 72, 153, 0.16);
+  --grid-line: rgba(255, 255, 255, 0.035);
+  --skel-base: rgba(255, 255, 255, 0.05);
+  --skel-shine: rgba(255, 255, 255, 0.11);
+}
+
+/* ---------- light palette ---------- */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    color-scheme: light;
+    --bg: #f5f6fa; --bg-elev: #ffffff; --surface: rgba(255, 255, 255, 0.74); --surface-solid: #ffffff;
+    --surface-2: rgba(15, 18, 34, 0.03); --surface-hover: rgba(15, 18, 34, 0.05); --surface-active: rgba(15, 18, 34, 0.08);
+    --border: rgba(15, 18, 34, 0.09); --border-strong: rgba(15, 18, 34, 0.17);
+    --text: #0e1122; --text-2: #2f3548; --muted: #4c5367; --subtle: #5f667a;
+    --accent: #5a48ee; --accent-strong: #4836d8; --accent-2: #0784a3; --accent-contrast: #ffffff;
+    --accent-grad: linear-gradient(135deg, #6250f2 0%, #3f6ff0 55%, #0b98bd 100%);
+    --success: #0b7f55; --warning: #965606; --danger: #c62f35; --info: #1f5fd6; --fixture: #965606;
+    --glow: 0 0 0 1px rgba(90, 72, 238, 0.25), 0 10px 30px -10px rgba(90, 72, 238, 0.35);
+    --ring: 0 0 0 2px var(--bg), 0 0 0 4px rgba(90, 72, 238, 0.75), 0 0 16px 2px rgba(90, 72, 238, 0.25);
+    --shadow-sm: 0 1px 2px rgba(15, 18, 34, 0.06);
+    --shadow-md: 0 1px 2px rgba(15, 18, 34, 0.04), 0 8px 24px -12px rgba(15, 18, 34, 0.14);
+    --shadow-lg: 0 2px 4px rgba(15, 18, 34, 0.04), 0 24px 60px -20px rgba(15, 18, 34, 0.25);
+    --aurora-1: rgba(98, 80, 242, 0.16); --aurora-2: rgba(11, 152, 189, 0.13); --aurora-3: rgba(236, 72, 153, 0.09);
+    --grid-line: rgba(15, 18, 34, 0.04); --skel-base: rgba(15, 18, 34, 0.06); --skel-shine: rgba(15, 18, 34, 0.11);
+  }
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f5f6fa; --bg-elev: #ffffff; --surface: rgba(255, 255, 255, 0.74); --surface-solid: #ffffff;
+  --surface-2: rgba(15, 18, 34, 0.03); --surface-hover: rgba(15, 18, 34, 0.05); --surface-active: rgba(15, 18, 34, 0.08);
+  --border: rgba(15, 18, 34, 0.09); --border-strong: rgba(15, 18, 34, 0.17);
+  --text: #0e1122; --text-2: #2f3548; --muted: #4c5367; --subtle: #5f667a;
+  --accent: #5a48ee; --accent-strong: #4836d8; --accent-2: #0784a3; --accent-contrast: #ffffff;
+  --accent-grad: linear-gradient(135deg, #6250f2 0%, #3f6ff0 55%, #0b98bd 100%);
+  --success: #0b7f55; --warning: #965606; --danger: #c62f35; --info: #1f5fd6; --fixture: #965606;
+  --glow: 0 0 0 1px rgba(90, 72, 238, 0.25), 0 10px 30px -10px rgba(90, 72, 238, 0.35);
+  --ring: 0 0 0 2px var(--bg), 0 0 0 4px rgba(90, 72, 238, 0.75), 0 0 16px 2px rgba(90, 72, 238, 0.25);
+  --shadow-sm: 0 1px 2px rgba(15, 18, 34, 0.06);
+  --shadow-md: 0 1px 2px rgba(15, 18, 34, 0.04), 0 8px 24px -12px rgba(15, 18, 34, 0.14);
+  --shadow-lg: 0 2px 4px rgba(15, 18, 34, 0.04), 0 24px 60px -20px rgba(15, 18, 34, 0.25);
+  --aurora-1: rgba(98, 80, 242, 0.16); --aurora-2: rgba(11, 152, 189, 0.13); --aurora-3: rgba(236, 72, 153, 0.09);
+  --grid-line: rgba(15, 18, 34, 0.04); --skel-base: rgba(15, 18, 34, 0.06); --skel-shine: rgba(15, 18, 34, 0.11);
+}
+
+/* tone helpers: fg / bg / border derived from one colour */
+:root {
+  --tone-neutral: var(--muted);
+  --tone-info: var(--info);
+  --tone-success: var(--success);
+  --tone-warning: var(--warning);
+  --tone-danger: var(--danger);
+  --tone-accent: var(--accent-strong);
+  --tone-fixture: var(--fixture);
+
+  /* v1 aliases (kept so pre-v2 class names keep working) */
+  --primary: var(--accent);
+  --primary-text: var(--accent-contrast);
+  --primary-hover: var(--accent-strong);
+  --focus: var(--accent);
+  --ok: var(--success);
+  --ok-bg: color-mix(in srgb, var(--success) 13%, transparent);
+  --warn: var(--warning);
+  --warn-bg: color-mix(in srgb, var(--warning) 13%, transparent);
+  --warn-border: color-mix(in srgb, var(--warning) 45%, transparent);
+  --danger-bg: color-mix(in srgb, var(--danger) 12%, transparent);
+  --info-bg: color-mix(in srgb, var(--info) 13%, transparent);
+  --neutral: var(--text-2);
+  --neutral-bg: var(--surface-hover);
+  --purple: var(--accent-strong);
+  --purple-bg: color-mix(in srgb, var(--accent) 15%, transparent);
+  --radius: var(--r-md);
+  --space: var(--sp-3);
+}

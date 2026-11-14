@@ -1,26 +1,26 @@
-import { useCallback, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
+import { AnimatePresence, motion, MotionConfig, useReducedMotion } from "framer-motion";
 import type { HealthResponse } from "../contracts";
 import { api, ApiClientError, type MeResponse } from "./api";
 import { ErrorNotice } from "./components/ErrorNotice";
-import { ModeBadges } from "./components/ModeBadges";
-import Review from "./pages/Review";
+import { ToastProvider } from "./design/Toast";
+import { Skeleton } from "./design/Skeleton";
+import { fadeOnly, pageTransition } from "./design/motion";
+import { Aurora } from "./shell/Aurora";
+import { BottomNav, Sidebar } from "./shell/Sidebar";
+import { SignIn } from "./shell/SignIn";
+import { TopBar } from "./shell/TopBar";
+import { navKeyOf, parseHash, ROUTE_TITLES, routeKey, type Route } from "./shell/routes";
+import { useTheme } from "./shell/theme";
 import Today from "./pages/Today";
 
+const Review = lazy(() => import("./pages/Review"));
+const Files = lazy(() => import("./pages/Files"));
+const Connections = lazy(() => import("./pages/Connections"));
+const Settings = lazy(() => import("./pages/Settings"));
+
 const DEMO_IDENTITY = "demo.provider@example.invalid";
-
-type Route = { name: "today" } | { name: "session"; id: string };
-
-function parseHash(hash: string): Route {
-  const m = /^#\/sessions\/([^/?#]+)\/?$/.exec(hash);
-  if (m && m[1]) {
-    try {
-      return { name: "session", id: decodeURIComponent(m[1]) };
-    } catch {
-      return { name: "today" };
-    }
-  }
-  return { name: "today" };
-}
+const COLLAPSE_KEY = "vexo.sidebar.collapsed";
 
 type Auth =
   | { kind: "loading" }
@@ -28,22 +28,66 @@ type Auth =
   | { kind: "signedOut" }
   | { kind: "error"; error: unknown };
 
+function readCollapsed(): boolean {
+  try {
+    return window.localStorage.getItem(COLLAPSE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function PageFallback() {
+  return (
+    <div className="page-fallback" aria-busy="true" aria-label="Loading page">
+      <Skeleton width="40%" height={34} radius={10} />
+      <Skeleton width="65%" height={14} />
+      <div className="page-fallback-grid">
+        <Skeleton height={140} radius={16} />
+        <Skeleton height={140} radius={16} />
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
+  return (
+    <MotionConfig reducedMotion="user">
+      <ToastProvider>
+        <AppInner />
+      </ToastProvider>
+    </MotionConfig>
+  );
+}
+
+function AppInner() {
   const [route, setRoute] = useState<Route>(() => parseHash(window.location.hash));
   const [auth, setAuth] = useState<Auth>({ kind: "loading" });
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [signInBusy, setSignInBusy] = useState(false);
   const [signInError, setSignInError] = useState<unknown>(null);
+  const [collapsed, setCollapsed] = useState(readCollapsed);
+  const theme = useTheme();
+  const reduce = useReducedMotion();
 
   useEffect(() => {
     const onHash = () => {
-      setRoute(parseHash(window.location.hash));
-      window.scrollTo(0, 0);
-      document.getElementById("main")?.focus();
+      const next = parseHash(window.location.hash);
+      setRoute((prev) => {
+        if (routeKey(prev) !== routeKey(next)) {
+          window.scrollTo(0, 0);
+          window.setTimeout(() => document.getElementById("main")?.focus({ preventScroll: true }), 0);
+        }
+        return next;
+      });
     };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
+
+  useEffect(() => {
+    const t = ROUTE_TITLES[route.name];
+    document.title = t === "Today" ? "Vexo Field Assistant" : `${t} · Vexo Field Assistant`;
+  }, [route.name]);
 
   const loadMe = useCallback(async () => {
     setAuth({ kind: "loading" });
@@ -91,75 +135,86 @@ export default function App() {
     window.location.hash = "#/";
   }, []);
 
+  function toggleCollapsed() {
+    setCollapsed((c) => {
+      try {
+        window.localStorage.setItem(COLLAPSE_KEY, c ? "0" : "1");
+      } catch {
+        /* ignore */
+      }
+      return !c;
+    });
+  }
+
   const devMode = health ? health.authMode === "dev" : true;
   const who =
     auth.kind === "signedIn"
       ? String(auth.me.displayName ?? auth.me.identity ?? auth.me.email ?? auth.me.providerId ?? "Signed in")
       : null;
+  const signedIn = auth.kind === "signedIn";
+  const variants = reduce ? fadeOnly : pageTransition;
 
   return (
     <>
-      <a className="skip-link" href="#main" onClick={(e) => { e.preventDefault(); document.getElementById("main")?.focus(); }}>
+      <Aurora />
+      <a
+        className="skip-link"
+        href="#main"
+        onClick={(e) => {
+          e.preventDefault();
+          document.getElementById("main")?.focus();
+        }}
+      >
         Skip to content
       </a>
-      <header className="app-header">
-        <div className="app-header-inner">
-          <a className="app-title" href="#/">
-            Vexo Field Assistant
-          </a>
-          <ModeBadges health={health} />
-          {who && (
-            <div className="row">
-              <span className="identity">
-                Signed in as <strong>{who}</strong>
-              </span>
-              <button type="button" className="btn btn-sm" onClick={() => void signOut()}>
-                Sign out
-              </button>
-            </div>
-          )}
-        </div>
-      </header>
-      <main id="main" className="app-main" tabIndex={-1}>
-        {auth.kind === "loading" && (
-          <p className="muted row" role="status">
-            <span className="spinner" aria-hidden="true" /> Loading…
-          </p>
-        )}
-        {auth.kind === "error" && (
-          <ErrorNotice
-            title={
-              auth.error instanceof ApiClientError && (auth.error.code === "NETWORK" || auth.error.status >= 500)
-                ? "Backend unavailable"
-                : "Could not load your account"
-            }
-            error={auth.error}
-            onRetry={() => void loadMe()}
+      <div className={signedIn ? "shell" : "shell shell-bare"} data-collapsed={collapsed || undefined}>
+        {signedIn && <Sidebar active={navKeyOf(route)} collapsed={collapsed} onToggle={toggleCollapsed} />}
+        <div className="shell-main">
+          <TopBar
+            title={signedIn ? ROUTE_TITLES[route.name] : "Welcome"}
+            health={health}
+            who={who}
+            theme={theme.pref}
+            resolvedTheme={theme.resolved}
+            onTheme={theme.setPref}
+            onToggleTheme={theme.toggle}
+            onSignOut={() => void signOut()}
           />
-        )}
-        {auth.kind === "signedOut" && (
-          <section className="card stack signin" aria-labelledby="signin-heading">
-            <h1 id="signin-heading">Sign in</h1>
-            <p className="muted">
-              This is synthetic development authentication. It signs you in as a fictional demo provider
-              ({DEMO_IDENTITY}) and is not available in production.
-            </p>
-            {signInError != null && <ErrorNotice title="Sign-in failed" error={signInError} />}
-            <div>
-              <button type="button" className="btn btn-primary" onClick={() => void signIn()} disabled={signInBusy}>
-                {signInBusy && <span className="spinner" aria-hidden="true" />}
-                {signInBusy ? "Signing in…" : "Sign in as demo provider"}
-              </button>
-            </div>
-          </section>
-        )}
-        {auth.kind === "signedIn" &&
-          (route.name === "session" ? (
-            <Review key={route.id} sessionId={route.id} onBack={goHome} />
-          ) : (
-            <Today devMode={devMode} />
-          ))}
-      </main>
+          <main id="main" className="content" tabIndex={-1}>
+            {auth.kind === "loading" && <PageFallback />}
+            {auth.kind === "error" && (
+              <div className="content-narrow">
+                <ErrorNotice
+                  title={
+                    auth.error instanceof ApiClientError && (auth.error.code === "NETWORK" || auth.error.status >= 500)
+                      ? "Backend unavailable"
+                      : "Could not load your account"
+                  }
+                  error={auth.error}
+                  onRetry={() => void loadMe()}
+                />
+              </div>
+            )}
+            {auth.kind === "signedOut" && (
+              <SignIn identity={DEMO_IDENTITY} busy={signInBusy} error={signInError} onSignIn={() => void signIn()} />
+            )}
+            {signedIn && (
+              <AnimatePresence mode="wait" initial={false}>
+                <motion.div key={routeKey(route)} className="page" variants={variants} initial="initial" animate="enter" exit="exit">
+                  <Suspense fallback={<PageFallback />}>
+                    {route.name === "today" && <Today devMode={devMode} />}
+                    {route.name === "session" && <Review sessionId={route.id} onBack={goHome} />}
+                    {route.name === "files" && <Files />}
+                    {route.name === "connections" && <Connections />}
+                    {route.name === "settings" && <Settings />}
+                  </Suspense>
+                </motion.div>
+              </AnimatePresence>
+            )}
+          </main>
+        </div>
+        {signedIn && <BottomNav active={navKeyOf(route)} />}
+      </div>
     </>
   );
 }

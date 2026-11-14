@@ -8,6 +8,10 @@ import { reviewRoutes } from "./review";
 import { sessionRoutes } from "./sessions";
 import { syncRoutes } from "./sync";
 import { settingsRoutes } from "./settings";
+import { settingsV2Routes } from "./settings-v2";
+import { filesRoutes } from "./files";
+import { deliveryRoutes } from "./deliveries";
+import { connectionsRoutes } from "../connections";
 
 export { ok } from "./respond";
 export { healthRoutes } from "./health";
@@ -36,6 +40,13 @@ export function createApi(deps: ApiDeps): Hono<AppBindings> {
   app.route("/", settingsRoutes(deps));
   app.route("/", devRoutes(deps));
   app.route("/", reviewRoutes(deps));
+  // v2: files, deliveries (drive + email drafts), settings, cloud connections.
+  // connectionsRoutes also serves GET /auth/connect/:provider/callback, which is
+  // outside /api/* and therefore not behind requireActor (state row carries identity).
+  app.route("/", settingsV2Routes(deps));
+  app.route("/", filesRoutes(deps));
+  app.route("/", deliveryRoutes(deps));
+  app.route("/", connectionsRoutes(deps));
 
   app.notFound((c) => {
     const cid = c.get("correlationId") ?? "";

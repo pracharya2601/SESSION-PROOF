@@ -16,12 +16,35 @@ import {
 import type { Env } from "../env";
 import { getVariant } from "../../fixtures/variants";
 import { jsonSchemaSessionFacts } from "../contracts/jsonSchema";
+import {
+  AI_DEFAULT_MODELS,
+  AiProviderId,
+  DEFAULT_AI_SETTINGS,
+  InferenceError,
+  type AiSettings,
+  type PrivacyReport,
+} from "../contracts/v2";
+import { buildPrivacyContext, createPrivacyController } from "../privacy";
+import { createInferenceProvider } from "./providers";
 
-export const PROMPT_VERSION = "extract-v1";
+export const PROMPT_VERSION = "extract-v2";
 export const FIXTURE_PROMPT_VERSION = "fixture-v1";
 export const TOOL_NAME = "record_session_facts";
-const TIMEOUT_MS = 30_000;
+export const TOOL_DESCRIPTION =
+  "Record structured session facts with evidence citations. Unknown information stays unknown.";
 const MAX_ATTEMPTS = 2;
+const MAX_RETRY_AFTER_MS = 10_000;
+
+/**
+ * ExtractionOutput (frozen, ports.ts) plus v2 provenance. Live mode sets
+ * `aiProvider` and `privacy`; read them with `isExtractionOutputV2`.
+ */
+export type ExtractionOutputV2 = ExtractionOutput & { aiProvider?: string; privacy?: PrivacyReport };
+
+export function isExtractionOutputV2(o: ExtractionOutput): o is ExtractionOutputV2 & { aiProvider: string; privacy: PrivacyReport } {
+  const r = o as ExtractionOutputV2;
+  return typeof r.aiProvider === "string" && r.privacy !== undefined && typeof r.privacy === "object";
+}
 
 // ------------------------------------------------------------ validation
 
@@ -108,7 +131,8 @@ export const SYSTEM_PROMPT = [
   "5. Never compute money, durations, eligibility or approval. Do not infer speakers, times or presence.",
   "6. Use support \"supported\" or \"uncertain\" only. Never output \"provider_confirmed\"; only providers attest.",
   "7. Use only goal ids from the plan.",
-  `Record the result by calling the ${TOOL_NAME} tool exactly once.`,
+  "8. Tokens in square brackets such as [NAME_1], [PHONE_2] or [CLIENT_REF_1] are privacy placeholders. Copy them verbatim when relevant; never guess, expand or alter them.",
+  `Record the result by calling the ${TOOL_NAME} tool exactly once (or, if tools are unavailable, reply with only the JSON object).`,
 ].join("\n");
 
 function escapeData(s: string): string {
@@ -118,6 +142,7 @@ function escapeAttr(s: string): string {
   return escapeData(s).replace(/"/g, "&quot;");
 }
 
+/** Builds the user turn. Pass the PRIVACY-PREPARED evidence in live mode. */
 export function buildUserContent(ctx: ExtractionContext): string {
   const goals = ctx.plan.goals
     .map((g) => `- ${escapeData(g.goalId)}: ${escapeData(g.objective)}`)
@@ -139,24 +164,6 @@ export function buildUserContent(ctx: ExtractionContext): string {
   ].join("\n");
 }
 
-export function buildRequestBody(model: string, ctx: ExtractionContext) {
-  return {
-    model,
-    max_tokens: 4096,
-    system: SYSTEM_PROMPT,
-    messages: [{ role: "user", content: buildUserContent(ctx) }],
-    tools: [
-      {
-        name: TOOL_NAME,
-        description:
-          "Record structured session facts with evidence citations. Unknown information stays unknown.",
-        input_schema: jsonSchemaSessionFacts,
-      },
-    ],
-    tool_choice: { type: "tool", name: TOOL_NAME },
-  };
-}
-
 // ------------------------------------------------------------ extractors
 
 function fixtureExtractor(env: Env): Extractor {
@@ -169,69 +176,77 @@ function fixtureExtractor(env: Env): Extractor {
   };
 }
 
-class RetryableError extends Error {}
+/**
+ * Settings when no per-provider settings resolver is given (or it fails):
+ * env.AI_PROVIDER if valid (else anthropic), env.AI_MODEL if set (else the
+ * provider's first suggested model), default privacy (everything redacted).
+ */
+export function envDefaultAiSettings(env: Env): AiSettings {
+  const parsed = AiProviderId.safeParse(env.AI_PROVIDER);
+  const provider = parsed.success ? parsed.data : DEFAULT_AI_SETTINGS.provider;
+  const model = env.AI_MODEL?.trim() || AI_DEFAULT_MODELS[provider][0] || DEFAULT_AI_SETTINGS.model;
+  return { ...DEFAULT_AI_SETTINGS, privacy: { ...DEFAULT_AI_SETTINGS.privacy }, provider, model };
+}
 
-function liveExtractor(env: Env, fetchFn: typeof fetch, retryDelayMs: number): Extractor {
-  const url = `${(env.AI_GATEWAY_URL ?? "https://api.anthropic.com").replace(/\/+$/, "")}/v1/messages`;
+export interface CreateExtractorOptions {
+  fetch?: typeof fetch;
+  resolveSettings?: (providerId: string) => Promise<AiSettings>;
+  retryDelayMs?: number;
+}
 
-  async function attempt(ctx: ExtractionContext, apiKey: string): Promise<SessionFacts> {
-    let res: Response;
-    try {
-      res = await fetchFn(url, {
-        method: "POST",
-        headers: {
-          "x-api-key": apiKey,
-          "anthropic-version": "2023-06-01",
-          "content-type": "application/json",
-        },
-        body: JSON.stringify(buildRequestBody(env.AI_MODEL, ctx)),
-        signal: AbortSignal.timeout(TIMEOUT_MS),
-      });
-    } catch {
-      throw new RetryableError("Model request failed (network or timeout)");
-    }
-    if (res.status === 429 || res.status >= 500) {
-      throw new RetryableError(`Model provider returned ${res.status}`);
-    }
-    if (!res.ok) {
-      throw new ExtractionRejectedError(`Model provider returned ${res.status}`, "provider_error");
-    }
-    let body: unknown;
-    try {
-      body = await res.json();
-    } catch {
-      throw new ExtractionRejectedError("Model response is not valid JSON", "malformed");
-    }
-    const content = (body as { content?: unknown } | null)?.content;
-    const block = Array.isArray(content)
-      ? content.find(
-          (b): b is { type: "tool_use"; name: string; input: unknown } =>
-            !!b && typeof b === "object" && (b as { type?: unknown }).type === "tool_use" &&
-            (b as { name?: unknown }).name === TOOL_NAME,
-        )
-      : undefined;
-    if (!block) throw new ExtractionRejectedError("Model response has no tool_use output", "malformed");
-    return validateExtraction(block.input, ctx);
-  }
+function liveExtractor(env: Env, opts: CreateExtractorOptions): Extractor {
+  const retryDelayMs = opts.retryDelayMs ?? 500;
+  const privacy = createPrivacyController();
 
   return {
     mode: "live",
-    async extractFacts(ctx): Promise<ExtractionOutput> {
-      const apiKey = env.AI_API_KEY;
-      if (!apiKey) throw new ExtractionRejectedError("AI_API_KEY is not configured", "provider_error");
+    async extractFacts(ctx): Promise<ExtractionOutputV2> {
+      const settings = (await opts.resolveSettings?.(ctx.appointment.providerId)) ?? envDefaultAiSettings(env);
+      // Scrub BEFORE anything leaves the Worker. Only prepared.evidence is used to build the prompt.
+      const prepared = privacy.prepare(ctx.evidence, buildPrivacyContext(ctx.appointment, settings.privacy));
+      const user = buildUserContent({ ...ctx, evidence: prepared.evidence });
+      const provider = createInferenceProvider(env, settings, { fetch: opts.fetch });
+
       let lastError: unknown;
       for (let i = 0; i < MAX_ATTEMPTS; i++) {
-        if (i > 0 && retryDelayMs > 0) await new Promise((r) => setTimeout(r, retryDelayMs));
+        if (i > 0) {
+          const hint = lastError instanceof InferenceError ? lastError.retryAfterMs : undefined;
+          const delay = retryDelayMs > 0 ? Math.max(retryDelayMs, Math.min(hint ?? 0, MAX_RETRY_AFTER_MS)) : 0;
+          if (delay > 0) await new Promise((r) => setTimeout(r, delay));
+        }
         try {
-          const facts = await attempt(ctx, apiKey);
-          return { facts, mode: "live", model: env.AI_MODEL, promptVersion: PROMPT_VERSION };
+          const result = await provider.generateStructured({
+            system: SYSTEM_PROMPT,
+            user,
+            tool: { name: TOOL_NAME, description: TOOL_DESCRIPTION, inputSchema: jsonSchemaSessionFacts },
+            maxTokens: 4096,
+          });
+          // Validate against the ORIGINAL ctx (evidence ids/goal ids are not scrubbed), then restore tokens.
+          const facts = prepared.restoreFacts(validateExtraction(result.output, ctx));
+          return {
+            facts,
+            mode: "live",
+            model: result.model,
+            promptVersion: PROMPT_VERSION,
+            aiProvider: result.provider,
+            privacy: prepared.report,
+          };
         } catch (err) {
           lastError = err;
-          // Non-retryable provider errors (4xx, missing config) stop immediately.
-          if (err instanceof ExtractionRejectedError && err.reason === "provider_error") throw err;
+          if (err instanceof InferenceError) {
+            if (err.kind === "not_configured" || err.kind === "auth" || !err.retryable) {
+              throw new ExtractionRejectedError(err.message, "provider_error");
+            }
+          } else if (!(err instanceof ExtractionRejectedError)) {
+            throw new ExtractionRejectedError("Extraction failed unexpectedly", "provider_error");
+          }
+          // Retryable inference errors and invalid model output: try again.
         }
       }
       if (lastError instanceof ExtractionRejectedError) throw lastError;
+      if (lastError instanceof InferenceError && lastError.kind === "invalid_output") {
+        throw new ExtractionRejectedError(lastError.message, "malformed");
+      }
       throw new ExtractionRejectedError(
         lastError instanceof Error ? lastError.message : "Model request failed",
         "provider_error",
@@ -240,11 +255,7 @@ function liveExtractor(env: Env, fetchFn: typeof fetch, retryDelayMs: number): E
   };
 }
 
-export function createExtractor(
-  env: Env,
-  opts?: { fetch?: typeof fetch; retryDelayMs?: number },
-): Extractor {
+export function createExtractor(env: Env, opts?: CreateExtractorOptions): Extractor {
   if (env.EXTRACTION_MODE === "fixture") return fixtureExtractor(env);
-  const fetchFn = opts?.fetch ?? ((input, init) => fetch(input, init));
-  return liveExtractor(env, fetchFn, opts?.retryDelayMs ?? 500);
+  return liveExtractor(env, opts ?? {});
 }

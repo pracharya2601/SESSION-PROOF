@@ -1,12 +1,13 @@
+import { FileJson, Printer, Stamp } from "lucide-react";
 import type { ApprovalRecord } from "../../../contracts";
 import { exportUrl } from "../../api";
 import { formatInstant } from "./format";
+import { Section } from "./Section";
 
 export function ApprovalRecordPanel(props: { approval: ApprovalRecord; timezone: string; completed: boolean }) {
   const a = props.approval;
   return (
-    <section className="card rv-approval" aria-label="Approval record">
-      <h2>Approval record</h2>
+    <Section label="Approval record" title="Approval record" icon={<Stamp size={18} />} className="rv-approval">
       <dl className="rv-dl">
         <dt>Approver</dt>
         <dd>{a.approverProviderId}</dd>
@@ -22,15 +23,15 @@ export function ApprovalRecordPanel(props: { approval: ApprovalRecord; timezone:
         <dd>{a.finalizationStatus}</dd>
       </dl>
       {props.completed && (
-        <div className="row">
-          <a className="btn" href={exportUrl(a.sessionId, "json")} download>
-            Download JSON
+        <div className="rv-row rv-exports">
+          <a className="ds-btn ds-btn-ghost ds-btn-sm" href={exportUrl(a.sessionId, "json")} download>
+            <FileJson size={14} aria-hidden="true" /> Download JSON
           </a>
-          <a className="btn" href={exportUrl(a.sessionId, "html")} target="_blank" rel="noopener noreferrer">
-            Open printable bundle
+          <a className="ds-btn ds-btn-ghost ds-btn-sm" href={exportUrl(a.sessionId, "html")} target="_blank" rel="noopener noreferrer">
+            <Printer size={14} aria-hidden="true" /> Open printable bundle
           </a>
         </div>
       )}
-    </section>
+    </Section>
   );
 }

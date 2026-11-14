@@ -43,6 +43,8 @@ export interface WorkflowDeps {
   clock: Clock;
   runtimeMode: RuntimeMode;
   approvalTimeout?: string;
+  /** v2: called after finalization (e.g. enqueue auto drive upload). Failures never undo completion. */
+  onCompleted?: (sessionId: string) => Promise<unknown>;
 }
 
 export interface StepLike {
@@ -186,6 +188,18 @@ export async function runSessionWorkflow(
     }
     throw new Error(`finalize failed: ${res.reason}`);
   });
+  if (deps.onCompleted) {
+    await step.do(`after completion r${bundleRevision}`, async () => {
+      try {
+        await deps.onCompleted!(sessionId);
+        return { ok: true };
+      } catch (err) {
+        // Completion is final; a failed hook (e.g. auto-upload enqueue) is logged, not retried forever.
+        log("workflow.on_completed_failed", { sessionId, error: err instanceof Error ? err.name : "unknown" });
+        return { ok: false };
+      }
+    });
+  }
   log("workflow.completed", { sessionId, processingRevision: rev, bundleRevision });
   return { outcome: "completed" };
 }
@@ -300,6 +314,17 @@ async function prepareDraft(deps: WorkflowDeps, sessionId: string, rev: number):
     evidenceCompleteness: result.completeness,
     evidenceWarnings: [...result.warnings, ...match.warnings],
   };
+  // v2 extras from the multi-provider extractor (counts only, never values).
+  const ext = extraction as typeof extraction & {
+    aiProvider?: string;
+    privacy?: { scrubbed: boolean; findings: Partial<Record<string, number>> };
+  };
+  if (ext.aiProvider) provenance.aiProvider = ext.aiProvider;
+  if (ext.privacy) {
+    const findings: Record<string, number> = {};
+    for (const [k, v] of Object.entries(ext.privacy.findings)) if (typeof v === "number") findings[k] = v;
+    provenance.privacy = { scrubbed: ext.privacy.scrubbed, findings };
+  }
   const now = clock.now();
   const bundle = deps.assemble({
     sessionId,

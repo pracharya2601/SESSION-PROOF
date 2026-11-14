@@ -14,6 +14,19 @@ import type {
   SessionDetail,
   SyncSettings,
   SyncSettingsView,
+  // v2
+  AiSettings,
+  Connection,
+  ConnectionProvider,
+  DriveUploadRequest,
+  EmailDraftRequest,
+  EmailSettings,
+  FileDelivery,
+  FileKind,
+  ListFilesResponse,
+  SettingsBundle,
+  StartConnectionResponse,
+  StorageSettings,
 } from "../contracts";
 
 /** GET /api/me — shape kept loose; the server derives identity. */
@@ -47,7 +60,7 @@ export class ApiClientError extends Error {
   }
 }
 
-type Method = "GET" | "POST" | "PATCH" | "PUT";
+type Method = "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
 
 async function request<T>(method: Method, path: string, body?: unknown): Promise<{ status: number; data: T }> {
   let res: Response;
@@ -113,6 +126,31 @@ export const api = {
     dataOf<SessionBundle>("PATCH", `/api/sessions/${enc(id)}/review`, req),
   approve: (id: string, req: ApprovalRequest): Promise<{ status: number; data: ApproveResponse }> =>
     request<ApproveResponse>("POST", `/api/sessions/${enc(id)}/approve`, req),
+
+  // ---------------------------------------------------------------- v2
+  listFiles: (cursor?: string) =>
+    dataOf<ListFilesResponse>("GET", "/api/files" + (cursor ? `?cursor=${enc(cursor)}` : "")),
+  /** URL of a session PDF (download by default; `inline: true` for in-browser preview). Not a fetch. */
+  fileUrl: (sessionId: string, kind: FileKind, opts?: { inline?: boolean }): string =>
+    `/api/sessions/${enc(sessionId)}/files/${enc(kind)}${opts?.inline ? "?inline=1" : ""}`,
+  listDeliveries: (sessionId: string) => dataOf<FileDelivery[]>("GET", `/api/sessions/${enc(sessionId)}/deliveries`),
+  uploadToDrive: (sessionId: string, req: DriveUploadRequest = {}) =>
+    dataOf<FileDelivery>("POST", `/api/sessions/${enc(sessionId)}/deliveries/drive`, req),
+  createEmailDraft: (sessionId: string, req: EmailDraftRequest) =>
+    dataOf<FileDelivery>("POST", `/api/sessions/${enc(sessionId)}/deliveries/email-draft`, req),
+  listConnections: () => dataOf<Connection[]>("GET", "/api/connections"),
+  startConnection: (provider: ConnectionProvider, returnTo?: string) =>
+    dataOf<StartConnectionResponse>(
+      "POST",
+      `/api/connections/${enc(provider)}/start`,
+      returnTo !== undefined ? { returnTo } : {},
+    ),
+  disconnect: (provider: ConnectionProvider) =>
+    dataOf<{ disconnected: true }>("DELETE", `/api/connections/${enc(provider)}`),
+  getSettings: () => dataOf<SettingsBundle>("GET", "/api/settings"),
+  saveStorageSettings: (s: StorageSettings) => dataOf<SettingsBundle>("PUT", "/api/settings/storage", s),
+  saveEmailSettings: (s: EmailSettings) => dataOf<SettingsBundle>("PUT", "/api/settings/email", s),
+  saveAiSettings: (s: AiSettings) => dataOf<SettingsBundle>("PUT", "/api/settings/ai", s),
 };
 
 export function exportUrl(id: string, format: "json" | "html"): string {

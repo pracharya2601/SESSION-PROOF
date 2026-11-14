@@ -33,6 +33,8 @@ export interface JobDeps {
   clock: Clock;
   lookbackMinutes?: number;
   maxAttempts?: number;
+  /** v2: performs an auto drive upload (payload.deliveryId). Injected by the composition root. */
+  processFileDelivery?: (deliveryId: string) => Promise<unknown>;
 }
 
 export const DEFAULT_LOOKBACK_MINUTES = 7 * 24 * 60;
@@ -131,6 +133,14 @@ export async function notifyApproval(deps: JobDeps, approval: ApprovalRecord): P
 async function deliver(deps: JobDeps, d: PendingDelivery): Promise<void> {
   if (d.operation === "process_session") {
     await deps.queue.send(queueMessage(d.sessionId, d.revision));
+    return;
+  }
+  if (d.operation === "file_delivery") {
+    const deliveryId = typeof d.payload.deliveryId === "string" ? d.payload.deliveryId : null;
+    if (!deliveryId) throw new Error("file_delivery payload missing deliveryId");
+    if (!deps.processFileDelivery) throw new Error("file delivery not wired");
+    // Throws on retryable failure -> failDelivery backoff; non-retryable is recorded on the delivery.
+    await deps.processFileDelivery(deliveryId);
     return;
   }
   const approval = await deps.repo.getApprovalForSession(d.sessionId);
