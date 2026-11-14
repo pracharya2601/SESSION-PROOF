@@ -64,6 +64,10 @@ export interface VisitStore {
   updateStats(visitId: string, packets: number, lostPackets: number): Promise<void>;
   /** Idempotent per (visit, index). */
   saveSegment(providerId: string, segment: BandSegment, now: string): Promise<void>;
+  /** saveSegment for many segments, in D1 batches (offline transcription). */
+  saveSegments(providerId: string, segments: BandSegment[], now: string): Promise<void>;
+  /** Removes every segment of the visit (an offline re-transcription starts clean). */
+  deleteSegments(visitId: string): Promise<void>;
   listSegments(visitId: string): Promise<BandSegment[]>;
   /**
    * recording → stopped, and the appointment's end moves to the real stop time.
@@ -75,7 +79,18 @@ export interface VisitStore {
   latestAppointmentForClient(providerId: string, clientRef: string): Promise<Appointment | null>;
 }
 
+const SEGMENT_BATCH = 50;
+
 export function createVisitStore(db: D1Database): VisitStore {
+  const insertSegment = (providerId: string, s: BandSegment, now: string) => {
+    const seg = BandSegment.parse(s);
+    return db
+      .prepare(
+        `INSERT OR IGNORE INTO band_segments (visit_id, idx, provider_id, observed_from, observed_to, speaker, text, source_mode, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(seg.visitId, seg.index, providerId, seg.observedFrom, seg.observedTo, seg.speaker, seg.text, seg.sourceMode, now);
+  };
   const getById = async (id: string) => {
     const r = await db.prepare(`${VISIT_SELECT} WHERE v.id = ?`).bind(id).first<Row>();
     return r ? rowToVisit(r) : null;
@@ -141,14 +156,16 @@ export function createVisitStore(db: D1Database): VisitStore {
     },
 
     async saveSegment(providerId, s, now) {
-      const seg = BandSegment.parse(s);
-      await db
-        .prepare(
-          `INSERT OR IGNORE INTO band_segments (visit_id, idx, provider_id, observed_from, observed_to, speaker, text, source_mode, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        )
-        .bind(seg.visitId, seg.index, providerId, seg.observedFrom, seg.observedTo, seg.speaker, seg.text, seg.sourceMode, now)
-        .run();
+      await insertSegment(providerId, s, now).run();
+    },
+
+    async saveSegments(providerId, segments, now) {
+      const stmts = segments.map((s) => insertSegment(providerId, s, now));
+      for (let i = 0; i < stmts.length; i += SEGMENT_BATCH) await db.batch(stmts.slice(i, i + SEGMENT_BATCH));
+    },
+
+    async deleteSegments(visitId) {
+      await db.prepare(`DELETE FROM band_segments WHERE visit_id = ?`).bind(visitId).run();
     },
 
     async listSegments(visitId) {

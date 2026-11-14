@@ -1,17 +1,26 @@
 /** Environment contract (handoff §6.3). Binding names are frozen. */
-import type { QueuePayload, WorkflowParams } from "./contracts";
+import type { SessionQueueMessage, WorkflowParams } from "./contracts";
 
 export interface Env {
   DB: D1Database;
-  SESSION_QUEUE: Queue<QueuePayload>;
+  SESSION_QUEUE: Queue<SessionQueueMessage>;
   SESSION_WORKFLOW: Workflow<WorkflowParams>;
   ASSETS: Fetcher;
+  /**
+   * Offline recordings (src/offline): R2 bucket holding uploaded VXREC1 files ONLY until they are
+   * transcribed (key audio-tmp/<provider>/<visit>.bin; deleted right after, or 24 h after a final
+   * failure). Absent → /api/device/offline-visits returns 503 OFFLINE_NOT_CONFIGURED.
+   */
+  AUDIO_TMP?: R2Bucket;
 
   EVIDENCE_MODE: "live" | "fixture";
   EXTRACTION_MODE: "live" | "fixture";
   AI_MODEL: string;
   AI_GATEWAY_URL?: string;
-  AUTH_MODE: "dev" | "access";
+  /** "public": NO login — every request acts as PUBLIC_PROVIDER_ID (owner's choice for an open demo). */
+  AUTH_MODE: "dev" | "access" | "public";
+  /** AUTH_MODE "public" only: the provider every visitor acts as. */
+  PUBLIC_PROVIDER_ID?: string;
   APP_ORIGIN: string;
   RUNTIME_MODE: "local" | "deployed";
 
@@ -32,6 +41,17 @@ export interface Env {
    * Unset → derived from PUBLIC_STREAM_ORIGIN (ws→http, wss→https), else APP_ORIGIN.
    */
   PUBLIC_APP_ORIGIN?: string;
+
+  /**
+   * Notifications (src/notify): sender address for notification emails, e.g.
+   * "Vexo Field Assistant <notify@field.example.com>". Email stays off unless this AND a sender
+   * (RESEND_API_KEY or the NOTIFY_EMAIL binding) are set, and the provider opted in.
+   */
+  NOTIFY_FROM?: string;
+  /** Cloudflare Email Workers `send_email` binding (needs Email Routing on NOTIFY_FROM's domain; verified destinations only). */
+  NOTIFY_EMAIL?: SendEmail;
+  /** Force a sender when both are configured ("resend" | "cloudflare"). Default: resend. */
+  NOTIFY_EMAIL_PROVIDER?: "resend" | "cloudflare";
 
   /** v2: default inference provider when a user has no AI settings (anthropic|openai|gemini|mistral). */
   AI_PROVIDER?: string;
@@ -57,5 +77,7 @@ export interface Env {
   TOKEN_ENCRYPTION_KEY?: string;
   /** Band visits: Deepgram live speech-to-text. Absent → simulated transcript in local dev, disabled when deployed. */
   DEEPGRAM_API_KEY?: string;
+  /** Notifications: Resend HTTP API key (email sender; with NOTIFY_FROM). */
+  RESEND_API_KEY?: string;
   SESSION_SECRET?: string;
 }

@@ -1,25 +1,41 @@
 #!/usr/bin/env bash
-# Provision the real Cloudflare resources for vexo-field-assistant (Agent 03).
+# Provision the real Cloudflare resources for vexo-field-assistant (env.production).
 # NOT run automatically. Requires `npx wrangler login` (or CLOUDFLARE_API_TOKEN
 # + CLOUDFLARE_ACCOUNT_ID in the environment). Safe to re-run: "already exists"
 # errors are reported and skipped. Never prints secret values.
 #
-#   bash scripts/platform/provision.sh            # dry run: print the commands
-#   bash scripts/platform/provision.sh --apply    # actually create resources
+#   bash scripts/platform/provision.sh            # dry run: print the commands, create nothing
+#   bash scripts/platform/provision.sh --apply    # create the D1 database + queue
+#
+# It does NOT set secrets, apply migrations, deploy, or touch Access. Those are
+# separate, deliberate steps in docs/deploy.md. Run `node scripts/platform/preflight.mjs`
+# afterwards to see what is still TODO.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
 DB_NAME="vexo-field-assistant"
 QUEUE_NAME="vexo-session-processing"
+ENV_NAME="production"
 WRANGLER="npx wrangler"
-APPLY=0; [ "${1:-}" = "--apply" ] && APPLY=1
+APPLY=0
+# A login that sees several accounts makes wrangler prompt (and fail non-interactively).
+# Use CLOUDFLARE_ACCOUNT_ID if set, else env.production.account_id from wrangler.jsonc.
+if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+  CLOUDFLARE_ACCOUNT_ID="$(node -e 'import("./scripts/platform/preflight.mjs").then(m=>{const c=m.parseJsonc(require("fs").readFileSync("wrangler.jsonc","utf8"));process.stdout.write(c.env?.production?.account_id??c.account_id??"")})' 2>/dev/null || true)"
+fi
+if [ -n "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then export CLOUDFLARE_ACCOUNT_ID; echo "== account: $CLOUDFLARE_ACCOUNT_ID"; fi
+case "${1:-}" in
+  --apply) APPLY=1 ;;
+  ""|--dry-run) APPLY=0 ;;
+  *) echo "usage: $0 [--apply]" >&2; exit 2 ;;
+esac
 
 run() {
   echo "+ $*"
   if [ "$APPLY" = 1 ]; then "$@" || echo "  (command failed or resource already exists; continuing)"; fi
 }
 
-echo "== 0. Auth check"
+echo "== 0. Auth check (read-only)"
 run $WRANGLER whoami
 
 echo "== 1. D1 database"
@@ -39,22 +55,25 @@ echo "== 2. Queue (producer + consumer share it)"
 run $WRANGLER queues create "$QUEUE_NAME"
 
 echo "== 3. Workflow"
-echo "   No create step: the 'vexo-session-workflow' Workflow is registered by 'wrangler deploy' from wrangler.jsonc."
-
-echo "== 4. Remote schema"
-echo "   After pasting the database_id below:  npm run db:migrate:remote"
-
-echo "== 5. Secrets (you will be prompted; values are never echoed)"
-for S in SESSION_SECRET TOKEN_ENCRYPTION_KEY; do
-  echo "+ $WRANGLER secret put $S"
-done
-echo "+ $WRANGLER secret put AI_API_KEY      # only if EXTRACTION_MODE=live"
-echo "   Generate values locally, e.g.: openssl rand -base64 32 | $WRANGLER secret put TOKEN_ENCRYPTION_KEY"
+echo "   No create step: 'vexo-session-workflow' is registered by 'wrangler deploy --env $ENV_NAME'."
 
 echo
+echo "== Next steps (run by hand; see docs/deploy.md)"
+echo "  a. Paste the database_id into wrangler.jsonc -> env.production.d1_databases[0].database_id"
+echo "  b. Set env.production APP_ORIGIN / PUBLIC_APP_ORIGIN (https://<host>) / PUBLIC_STREAM_ORIGIN (wss://<host>)"
+echo "     and choose ingress: a custom-domain route, or workers_dev: true."
+echo "  c. Schema:   npm run db:migrate:remote"
+echo "  d. Secrets (prompted, never echoed; note --env $ENV_NAME):"
+for S in SESSION_SECRET TOKEN_ENCRYPTION_KEY DEEPGRAM_API_KEY; do
+  echo "       $WRANGLER secret put $S --env $ENV_NAME"
+done
+echo "       $WRANGLER secret put AI_API_KEY --env $ENV_NAME      # only if EXTRACTION_MODE=live"
+echo "     Generate: openssl rand -base64 48 | tr -d '\\n' | $WRANGLER secret put SESSION_SECRET --env $ENV_NAME"
+echo "               openssl rand -base64 32 | tr -d '\\n' | $WRANGLER secret put TOKEN_ENCRYPTION_KEY --env $ENV_NAME"
+echo "  e. node scripts/platform/preflight.mjs --secrets --full"
+echo
 echo "================================================================"
-echo "Paste into wrangler.jsonc -> d1_databases[0].database_id:"
+echo "env.production.d1_databases[0]:"
 echo "  \"database_id\": \"${DB_ID:-<not found; run: npx wrangler d1 info $DB_NAME>}\""
-echo "Also set vars.APP_ORIGIN and vars.RUNTIME_MODE=\"deployed\" for the deployed environment."
 echo "================================================================"
 [ "$APPLY" = 1 ] || echo "(dry run: nothing was created; re-run with --apply)"

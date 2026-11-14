@@ -23,6 +23,9 @@
     "producers": [{ "binding": "SESSION_QUEUE", "queue": "vexo-session-processing" }],
     "consumers": [{ "queue": "vexo-session-processing", "max_batch_size": 10, "max_retries": 5 }]
   },
+  // Offline recordings (docs/offline-recording.md): uploaded band audio, kept ONLY until it is
+  // transcribed. wrangler dev simulates this bucket locally (.wrangler/state).
+  "r2_buckets": [{ "binding": "AUDIO_TMP", "bucket_name": "vexo-audio-tmp" }],
   "workflows": [
     { "binding": "SESSION_WORKFLOW", "name": "vexo-session-workflow", "class_name": "SessionWorkflow" }
   ],
@@ -47,15 +50,35 @@
   // not inherited by environments, so they are repeated here.
   "env": {
     "production": {
+      // ---- Ingress (DECIDE, see docs/deploy.md §4) --------------------------
+      // Exactly one public hostname, and it must sit behind a hostname-based
+      // Cloudflare Access application (NOT the Worker-level "Protect this Worker"
+      // toggle: it 403s WebSocket upgrades and has no per-path bypass).
+      //  Option A (recommended): custom domain on a zone in this account. Uncomment
+      //   "routes" and keep workers_dev false so there is no second, unprotected URL.
+      //  Option B (no zone): set workers_dev true and put the Access application on
+      //   vexo-field-assistant-production.<account-subdomain>.workers.dev instead.
+      // Chosen: Option A, custom domain on the account's prakashacharya.com zone.
+      "routes": [{ "pattern": "field-assist.prakashacharya.com", "custom_domain": true }],
       "workers_dev": false,
       "preview_urls": false,
-      // Put Cloudflare Access in front of this route before first deploy.
-      // "routes": [{ "pattern": "field-assist.example.com", "custom_domain": true }],
+      // The OAuth login sees several accounts; pin the one this deploy belongs to.
+      "account_id": "08bf6d58600c6d6b8e0734803d477859",
+      // Assets are restated (not inherited) so production does NOT list /__scheduled:
+      // that is a wrangler-dev-only test route (--test-scheduled); deployed crons run
+      // from "triggers" and the fetch handler has no /__scheduled route.
+      "assets": {
+        "directory": "./dist/client",
+        "binding": "ASSETS",
+        "not_found_handling": "single-page-application",
+        "run_worker_first": ["/api/*", "/auth/*"]
+      },
       "d1_databases": [
         {
           "binding": "DB",
           "database_name": "vexo-field-assistant",
-          "database_id": "00000000-0000-0000-0000-000000000000",
+          // Created by `bash scripts/platform/provision.sh --apply` (2026-11-14).
+          "database_id": "fcbf44f5-578d-4f77-ac63-145148582b86",
           "migrations_dir": "migrations"
         }
       ],
@@ -67,15 +90,34 @@
         { "binding": "SESSION_WORKFLOW", "name": "vexo-session-workflow", "class_name": "SessionWorkflow" }
       ],
       "triggers": { "crons": ["*/5 * * * *"] },
+      // Workers Logs (console.log JSON lines are already redacted by src/security log()).
+      "observability": { "enabled": true },
       "vars": {
+        // Calendar evidence stays synthetic (no live Vexo MCP client is wired). Band visits
+        // always use their own recorded transcript, whatever this says.
         "EVIDENCE_MODE": "fixture",
+        // DECIDE: "fixture" returns canned demo facts (no AI key); "live" sends the
+        // PII-scrubbed transcript to the provider's AI vendor and needs an AI key secret.
         "EXTRACTION_MODE": "fixture",
         "AI_MODEL": "claude-sonnet-5-5",
-        "AUTH_MODE": "access",
-        "APP_ORIGIN": "https://field-assist.example.com",
-        "RUNTIME_MODE": "deployed"
+        // Owner decision (2026-11-14): open public access, no login. Every visitor acts as
+        // PUBLIC_PROVIDER_ID. Switch back to "access" (+ ACCESS_TEAM_DOMAIN/ACCESS_AUD) to require login.
+        "AUTH_MODE": "public",
+        "PUBLIC_PROVIDER_ID": "provider_demo_001",
+        "RUNTIME_MODE": "deployed",
+        // The one public origin. All three name the same host: https for the app/device API,
+        // wss for the band stream.
+        "APP_ORIGIN": "https://field-assist.prakashacharya.com",
+        "PUBLIC_APP_ORIGIN": "https://field-assist.prakashacharya.com",
+        "PUBLIC_STREAM_ORIGIN": "wss://field-assist.prakashacharya.com"
+        // TODO(access): uncomment once the Access apps exist (docs/deploy.md §5.3). Until both
+        // are set, every Access-authenticated route returns 503 AUTH_NOT_CONFIGURED (fail
+        // closed); device-key and stream-token routes keep working.
+        // "ACCESS_TEAM_DOMAIN": "https://<team>.cloudflareaccess.com",
+        // "ACCESS_AUD": "<Application Audience (AUD) tag of the main Access app>"
       }
     }
   }
-  // Secrets (never committed): AI_API_KEY, TOKEN_ENCRYPTION_KEY, SESSION_SECRET
+  // Secrets (never committed; `wrangler secret put <NAME> --env production`):
+  // SESSION_SECRET, TOKEN_ENCRYPTION_KEY, DEEPGRAM_API_KEY, and an AI key only when EXTRACTION_MODE=live.
 }

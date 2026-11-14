@@ -18,8 +18,11 @@ import { documentsRoutes } from "./documents";
 import { runsRoutes } from "./runs";
 import { visitsRoutes, visitStreamRoutes } from "./visits";
 import { deviceRoutes } from "./device";
+import { offlineVisitRoutes } from "./offline-visits";
 import { devicesRoutes } from "./devices";
 import { hasDeviceBearer } from "../devices";
+import { reviewLinkAdminRoutes, reviewLinkRoutes } from "./review-links";
+import { notificationRoutes } from "./notifications";
 
 export { ok } from "./respond";
 export { healthRoutes } from "./health";
@@ -49,6 +52,9 @@ export function createApi(deps: ApiDeps): Hono<AppBindings> {
   app.route("/", visitStreamRoutes(deps));
   // Paired-device API (GlassCam): device-key bearer auth, no cookie.
   app.route("/", deviceRoutes(deps));
+  app.route("/", offlineVisitRoutes(deps)); // offline recordings (device key): docs/offline-recording.md
+  // Review links (/r/<token>): the token is the credential, no cookie. Mutations keep originGuard.
+  app.route("/", reviewLinkRoutes(deps));
 
   app.use("/api/*", requireActor(deps));
 
@@ -73,6 +79,9 @@ export function createApi(deps: ApiDeps): Hono<AppBindings> {
   app.route("/", visitsRoutes(deps));
   // Paired devices: pair / list / revoke (Settings → Devices).
   app.route("/", devicesRoutes(deps));
+  // Approval hand-off: in-app inbox, Settings → Notifications, review-link management.
+  app.route("/", notificationRoutes(deps));
+  app.route("/", reviewLinkAdminRoutes(deps));
 
   app.notFound((c) => {
     const cid = c.get("correlationId") ?? "";

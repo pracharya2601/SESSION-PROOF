@@ -63,26 +63,45 @@ Tests run in node. `cloudflare:workers` is aliased to `scripts/platform/cloudfla
 
 ## 3. Deploy
 
-### Provision (once)
+The full step-by-step guide is **[docs/deploy.md](deploy.md)**. It covers the plan and costs, provisioning, Access (login app plus bypass app), secrets, remote data, deploy, pairing the phone, smoke test and rollback. In short:
 
 ```sh
 npx wrangler login
-bash scripts/platform/provision.sh           # prints the commands (dry run)
-bash scripts/platform/provision.sh --apply   # creates the D1 + Queue and prints database_id
-```
-
-Paste the printed `database_id` into `env.production` in `wrangler.jsonc` (it is a placeholder today) and set its `APP_ORIGIN` to the real origin. `env.production` already sets `AUTH_MODE: "access"`, `RUNTIME_MODE: "deployed"` and `workers_dev: false`; put the route behind a Cloudflare Access application. Then run (add `--env production` to the secret commands):
-
-```sh
+bash scripts/platform/provision.sh --apply             # D1 + Queue; prints database_id (dry run without --apply)
+# edit wrangler.jsonc env.production: database_id, ingress (route or workers_dev), APP_ORIGIN / PUBLIC_APP_ORIGIN / PUBLIC_STREAM_ORIGIN
 npm run db:migrate:remote
-npx wrangler secret put SESSION_SECRET          # prompts; value is not echoed
-npx wrangler secret put TOKEN_ENCRYPTION_KEY    # e.g. openssl rand -base64 32 | npx wrangler secret put TOKEN_ENCRYPTION_KEY
-npx wrangler secret put AI_API_KEY              # only if EXTRACTION_MODE=live
-npx wrangler secret list                        # names only
+npx wrangler secret put SESSION_SECRET --env production
+npx wrangler secret put TOKEN_ENCRYPTION_KEY --env production
+npx wrangler secret put DEEPGRAM_API_KEY --env production
+node scripts/platform/preflight.mjs --secrets --full   # PASS/TODO/FAIL checklist; exit 1 while anything is open
 npm run deploy
 ```
 
-The Workflow is created by `wrangler deploy`; it has no separate create command.
+- `env.production` repeats every binding, because bindings and vars are not inherited by an environment.
+- Its `assets.run_worker_first` is `["/api/*", "/auth/*"]`. `/__scheduled` is a `wrangler dev --test-scheduled` route only, so it is left out.
+- `observability` is on.
+- The Workflow is created by `wrangler deploy`; it has no separate create command.
+- Security-review H2 is fixed: the Worker verifies the Access JWT (`src/security/access-jwt.ts`) and never trusts the plain email header. Until `ACCESS_TEAM_DOMAIN` and `ACCESS_AUD` are set, every Access route returns 503 (deploy.md §5.4).
+- Preflight: `npm run preflight -- --secrets --full`. Its tests: `node --test scripts/platform/preflight.test.mjs`.
+
+### Current deployment (2026-11-14)
+
+| | |
+|---|---|
+| URL | `https://field-assist.prakashacharya.com` (custom domain; workers.dev off) |
+| Worker | `vexo-field-assistant-production` on account `08bf6d58600c6d6b8e0734803d477859` (pinned as `env.production.account_id`) |
+| Version | `357c72ff-262e-4b78-89cc-032d964eca64` (2nd deploy, adds review links; rollback target: `df459afc-cb54-4dbe-9931-07feb7af28b1`) |
+| D1 | `vexo-field-assistant` `fcbf44f5-578d-4f77-ac63-145148582b86`, migrations 0001–0009 applied |
+| Access | **not set up yet**: web UI/API return 503 `AUTH_NOT_CONFIGURED`. Steps: deploy.md §5.3 |
+
+Operator tools for the deployed DB (no Access session needed; they use your wrangler login):
+
+```sh
+SEED_IDENTITY=you@example.com npx vite-node scripts/platform/remote-seed.ts -- --apply   # provider + C-104 + template appointment (synthetic)
+node scripts/platform/pair-device-remote.mjs --out <file> --name "iPhone"               # key + pairing link go to <file> (0600), never printed
+node scripts/platform/pair-device-remote.mjs --revoke dev_…                             # key stops working at once
+DEVICE_KEY=vfad_… BASE_URL=https://<host> npm run smoke:deployed -- <packets.bin> C-104 # end-to-end band visit with real audio
+```
 
 ### Prerequisites checklist (§17.4)
 
@@ -90,10 +109,10 @@ The Workflow is created by `wrangler deploy`; it has no separate create command.
 - [ ] Typecheck passes (`npm run typecheck`).
 - [ ] Migration applied to the intended environment (`npx wrangler d1 migrations list vexo-field-assistant --remote`).
 - [ ] Required bindings exist (D1 id pasted, queue created; `wrangler deploy` output lists DB, SESSION_QUEUE, SESSION_WORKFLOW, ASSETS).
-- [ ] Required secrets exist (`npx wrangler secret list`).
+- [ ] Required secrets exist (`npx wrangler secret list --env production`: SESSION_SECRET, TOKEN_ENCRYPTION_KEY, DEEPGRAM_API_KEY).
 - [ ] API/auth routes are not swallowed by SPA fallback (`curl -i $ORIGIN/api/health` returns JSON, not HTML).
 - [ ] OAuth callback origin matches `APP_ORIGIN` if evidence is live.
-- [ ] Access control protects the deployed application (`AUTH_MODE=access` + Access policy).
+- [ ] Access control protects the deployed application (`AUTH_MODE=access`, login app + bypass app, `ACCESS_TEAM_DOMAIN`/`ACCESS_AUD` set; deploy.md §5). Forged-header test returns 401, or 503 while Access is unconfigured, never 404 (deploy.md §9.3).
 - [ ] `EVIDENCE_MODE` explicitly configured.
 - [ ] `EXTRACTION_MODE` explicitly configured.
 - [ ] Release checks have evidence or are clearly marked unverified.
@@ -122,4 +141,4 @@ A successful deploy command does not prove the app works. With `ORIGIN=https://<
 
 ### Rollback (§17.6)
 
-Run `npx wrangler deployments list`, then `npx wrangler rollback <version-id>`. Do not run destructive schema rollbacks, and do not delete records to save a demo; prefer an isolated demo database. If the deployment is not repaired by M18, demo from the tested local build and state the limitation.
+Run `npx wrangler deployments list --env production`, then `npx wrangler rollback <version-id> --env production` (details: deploy.md §10). Do not run destructive schema rollbacks, and do not delete records to save a demo; prefer an isolated demo database. If the deployment is not repaired by M18, demo from the tested local build and state the limitation.

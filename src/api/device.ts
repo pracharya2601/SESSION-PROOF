@@ -9,6 +9,7 @@
  *   POST /api/device/visits   DeviceStartVisitRequest     → 201 StartVisitResponse
  *   POST /api/device/visits/:id/stop                      → StopVisitResponse
  *   GET  /api/device/visits/:id                           → VisitDetail
+ *   GET  /api/device/inbox                                → DeviceInboxResponse (visits waiting for review + review-link URL)
  *
  * Visit start/stop/detail reuse the cookie routes' logic (src/api/visits.ts).
  */
@@ -20,6 +21,7 @@ import { createDeviceStore, requireDevice, type DeviceBindings, type DeviceStore
 import type { ApiDeps, AppBindings } from "./deps";
 import { ok } from "./respond";
 import { captureStatus, startVisitAs, stopVisitAs, visitDetailAs } from "./visits";
+import { buildDeviceInbox } from "../notify/inbox";
 
 const CLIENT_LIMIT = 200;
 
@@ -71,6 +73,11 @@ export function deviceRoutes(deps: ApiDeps, store: DeviceStore = createDeviceSto
   app.post("/api/device/visits/:id/stop", (c) => stopVisitAs(deps, asApp(c), c.get("actor").providerId, c.req.param("id")));
 
   app.get("/api/device/visits/:id", (c) => visitDetailAs(deps, asApp(c), c.get("actor").providerId, c.req.param("id")));
+
+  // Visits waiting for the provider's review, each with its review link (GlassCam local notification).
+  app.get("/api/device/inbox", async (c) =>
+    ok(asApp(c), await buildDeviceInbox({ repo: deps.repo, env: deps.env, clock: deps.clock }, c.get("actor").providerId)),
+  );
 
   return app;
 }

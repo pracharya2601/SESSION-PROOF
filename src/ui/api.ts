@@ -49,6 +49,12 @@ import type {
   PairDeviceResponse,
   PairedDevice,
 } from "../contracts";
+import type {
+  ListNotificationsResponse,
+  NotificationSettings,
+  NotificationSettingsView,
+  TestNotificationResult,
+} from "../notify/types";
 
 /** GET /api/me — shape kept loose; the server derives identity. */
 export interface MeResponse {
@@ -56,7 +62,7 @@ export interface MeResponse {
   identity?: string;
   email?: string;
   displayName?: string;
-  authMode?: "dev" | "access";
+  authMode?: "dev" | "access" | "public";
   [key: string]: unknown;
 }
 
@@ -221,7 +227,34 @@ export const api = {
   /** The key and pairing link are returned ONCE; the server keeps only a hash. */
   pairDevice: (name: string) => dataOf<PairDeviceResponse>("POST", "/api/devices", { name }),
   revokeDevice: (id: string) => dataOf<{ revoked: true }>("DELETE", `/api/devices/${enc(id)}`),
+
+  // ---------------------------------------------------------------- notifications (approval hand-off)
+  listNotifications: (opts?: { unread?: boolean; limit?: number }) =>
+    dataOf<ListNotificationsResponse>(
+      "GET",
+      "/api/notifications" + query({ unread: opts?.unread ? "1" : undefined, limit: opts?.limit ? String(opts.limit) : undefined }),
+    ),
+  markNotificationRead: (id: string) => dataOf<{ read: true }>("POST", `/api/notifications/${enc(id)}/read`, {}),
+  markAllNotificationsRead: () => dataOf<{ updated: number }>("POST", "/api/notifications/read-all", {}),
+  getNotificationSettings: () => dataOf<NotificationSettingsView>("GET", "/api/settings/notifications"),
+  saveNotificationSettings: (s: NotificationSettings) =>
+    dataOf<NotificationSettingsView>("PUT", "/api/settings/notifications", s),
+  sendTestNotification: () => dataOf<TestNotificationResult>("POST", "/api/settings/notifications/test", {}),
 };
+
+/**
+ * Review-link client (no cookie: the token in the URL is the credential). Same shapes as the
+ * session routes, so the Review page runs on it unchanged (see ReviewSource in pages/Review.tsx).
+ */
+export function reviewLinkApi(token: string) {
+  const base = `/api/review-link/${enc(token)}`;
+  return {
+    getSession: (_id: string) => dataOf<SessionDetail>("GET", base),
+    saveReview: (_id: string, req: ReviewRequest) => dataOf<SessionBundle>("PATCH", `${base}/review`, req),
+    approve: (_id: string, req: ApprovalRequest) => request<ApproveResponse>("POST", `${base}/approve`, req),
+    getDocument: (kind: FileKind, templateId?: string) => dataOf<DocModel>("GET", `${base}/documents/${enc(kind)}` + query({ templateId })),
+  };
+}
 
 /** Builds `?a=1&b=2` from defined, non-empty values ("" when none). */
 function query(params: Record<string, string | undefined>): string {

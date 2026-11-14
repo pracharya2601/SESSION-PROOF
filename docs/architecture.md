@@ -9,6 +9,7 @@ cron */5 (or POST /api/sync)
   → Queue → handleQueueBatch → SESSION_WORKFLOW.create(wf-<session>-r<rev>)
   → runSessionWorkflow steps:
       load → evidence → match → privacy → extraction → assemble → draft_saved
+      → notify review   (onNeedsReview: review link + inbox + optional email, src/notify)
       → approval_wait   (waitForEvent "provider-approved")
       → approved → client_snapshot → finalize → files → completed
   → onCompleted → optional auto-upload (file_delivery job)
@@ -39,6 +40,7 @@ cron */5 (or POST /api/sync)
 | Security | `requireActor`, `originGuard`, `apiError`, `encryptToken`/`decryptToken`, `log` (redacting), `escapeHtml` | `src/security/` |
 | Export | `renderExportHtml`, `exportJson` | `src/export/` |
 | Band visits | `createVisitStore`, `CaptureSession`, `openDeepgram`/`openSimulated`, `BandEvidenceSource`/`VisitRoutingEvidenceSource`, stream tokens | `src/band/`, `src/api/visits.ts` (see `docs/band-bridge.md`) |
+| Offline recordings | `parseVxrec`/`buildTimeline`, `muxOggOpus`, `runOfflineTranscription` (queue kind `transcribe_offline`), `sweepOfflineAudio` (heartbeat), `createOfflineStore` | `src/offline/`, `src/api/offline-visits.ts` (see `docs/offline-recording.md`) |
 
 ## Routes
 Every `/api/*` route needs the actor (cookie in dev, Access header in production), except `/api/health`. Mutations must be same-origin. Responses are wrapped as `{ data, correlationId }` or `{ error }` with `Cache-Control: no-store`.
@@ -56,6 +58,8 @@ Every `/api/*` route needs the actor (cookie in dev, Access header in production
 | Templates | `GET/POST /api/templates`, `PUT/DELETE /api/templates/:id` (builtin → 409), `PUT /api/templates/default/:kind`, `POST /api/templates/preview` |
 | Runs | `GET /api/runs?status&sessionId&cursor`, `GET /api/runs/:runId` |
 | Band visits | `GET /api/visits/capture-status`, `GET/POST /api/visits`, `GET /api/visits/:id`, `POST /api/visits/:id/stop`, WS `GET /api/visits/:id/stream` (token or cookie+Origin; mounted before requireActor) |
+| Review links (token, no cookie; mounted before requireActor) | `GET /api/review-link/:token` (SessionDetail), `PATCH …/review`, `POST …/approve`, `GET …/documents/:kind`; page `/r/<token>` (SPA fallback) |
+| Notifications | `GET /api/notifications?unread=1`, `POST /api/notifications/:id/read`, `POST /api/notifications/read-all`, `GET/PUT /api/settings/notifications`, `POST /api/settings/notifications/test`, `GET /api/sessions/:id/review-links`, `DELETE /api/review-links/:id`, device `GET /api/device/inbox` |
 | Dev only (dev auth + local runtime) | `POST /api/dev/seed`, `POST /api/dev/reset-session/:id` |
 
 ## Data rules
@@ -70,5 +74,8 @@ Hash routes: `#/` Today, `#/sessions/:id` Review, `#/files`, `#/clients[/:ref]`,
 
 Review page (`src/ui/pages/Review.tsx`, `src/ui/components/review/`): the documents sit on the left. The right rail holds the status card with `ApprovalChecklist` (blockers → Fix → Save → Approve), the correction form, the files card, the approval record, `AmendCard` (Amend, earlier revisions, dev reset) and `RunTimeline`.
 
+## Approval hand-off
+Draft saved → the workflow's `notify review r<rev>` step calls `onNeedsReview` (src/index.ts → `createNotifier().sessionNeedsReview`): it reuses or mints the session's review link (`src/review-links`, token `vfrl_…`, only SHA-256 stored, 7 days, revocable), adds a `ready_for_review` inbox notification (deduped per bundle revision) and, if the provider opted in and the server has a sender, emails client ref, date, minutes, blocker count and the link. The completion hook closes the links and posts `approved`. The link opens the same Review page (`ReviewSource` prop, `linkMode`); approval still needs a saved revision with no blockers. Email setup: `docs/integrations.md`.
+
 ## Migrations
-`0001_init` · `0002_sync_settings` · `0003_v2` (connections, settings, deliveries) · `0004_v3` (clients, templates, snapshots, run events) · `0005_amendments` (`superseded_finals`) · `0006_band_visits` (`band_visits`, `band_segments`; no audio).
+`0001_init` · `0002_sync_settings` · `0003_v2` (connections, settings, deliveries) · `0004_v3` (clients, templates, snapshots, run events) · `0005_amendments` (`superseded_finals`) · `0006_band_visits` (`band_visits`, `band_segments`; no audio) · `0009_review_links` (`review_links`, `notifications`, `notification_settings`, `notification_log`).

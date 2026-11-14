@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { AlertOctagon, ArrowLeft, CheckCircle2, ChevronDown, History, Info, Loader2, RefreshCw } from "lucide-react";
-import type { ReviewEdits, SessionBundle, SessionDetail } from "../../contracts";
+import type { ApprovalRequest, ApproveResponse, ReviewEdits, ReviewRequest, SessionBundle, SessionDetail } from "../../contracts";
 import { api, ApiClientError } from "../api";
 import { Button, Skeleton, StatusPill } from "../design";
 import { SessionHeader } from "../components/review/SessionHeader";
@@ -134,8 +134,22 @@ function blockerLines(d: SessionDetail | null): string[] | undefined {
   return issues.length > 0 ? issues.map((i) => `${i.field}: ${i.message}`) : undefined;
 }
 
-export default function Review(props: { sessionId: string; onBack: () => void }) {
+/**
+ * Where the review page reads and writes. Default: the cookie API. The review-link page
+ * (src/ui/pages/ReviewLink.tsx) passes token-authenticated calls and `linkMode`, which hides
+ * the parts that need a signed-in session (run history, amend, files, export).
+ */
+export interface ReviewSource {
+  getSession(id: string): Promise<SessionDetail>;
+  saveReview(id: string, req: ReviewRequest): Promise<SessionBundle>;
+  approve(id: string, req: ApprovalRequest): Promise<{ status: number; data: ApproveResponse }>;
+  linkMode?: boolean;
+}
+
+export default function Review(props: { sessionId: string; onBack: () => void; source?: ReviewSource }) {
   const { sessionId } = props;
+  const src: ReviewSource = props.source ?? api;
+  const linkMode = props.source?.linkMode === true;
   const motionOK = useMotionOK();
   const [detail, setDetail] = useState<SessionDetail | null>(null);
   const [loadError, setLoadError] = useState<UiError | null>(null);
@@ -168,7 +182,7 @@ export default function Review(props: { sessionId: string; onBack: () => void })
 
   const fetchDetail = useCallback(async (): Promise<SessionDetail | null> => {
     try {
-      const d = await api.getSession(sessionId);
+      const d = await src.getSession(sessionId);
       if (!mounted.current) return null;
       setDetail(d);
       setLoadError(null);
@@ -177,7 +191,7 @@ export default function Review(props: { sessionId: string; onBack: () => void })
       if (mounted.current) setLoadError(toUiError(e));
       return null;
     }
-  }, [sessionId]);
+  }, [sessionId, src]);
 
   const pollUntilCompleted = useCallback(async () => {
     const token = ++pollToken.current;
@@ -187,7 +201,7 @@ export default function Review(props: { sessionId: string; onBack: () => void })
       if (!mounted.current || token !== pollToken.current) return;
       let d: SessionDetail | null = null;
       try {
-        d = await api.getSession(sessionId);
+        d = await src.getSession(sessionId);
       } catch {
         d = null; // transient; keep polling
       }
@@ -206,7 +220,7 @@ export default function Review(props: { sessionId: string; onBack: () => void })
       setFinalizing(false);
       setNotice("Approval is recorded; finalization is still pending. Refresh later to see the completed bundle.");
     }
-  }, [sessionId]);
+  }, [sessionId, src]);
 
   // Initial load.
   useEffect(() => {
@@ -214,7 +228,7 @@ export default function Review(props: { sessionId: string; onBack: () => void })
     setLoading(true);
     setNotice(null);
     setError(null);
-    api
+    src
       .getSession(sessionId)
       .then((d) => {
         if (cancelled) return;
@@ -232,7 +246,7 @@ export default function Review(props: { sessionId: string; onBack: () => void })
     return () => {
       cancelled = true;
     };
-  }, [sessionId, pollUntilCompleted]);
+  }, [sessionId, pollUntilCompleted, src]);
 
   // ----- form state
   const currentConfirmed = bundle?.documents.timeSummary.confirmedMinutes ?? null;
@@ -304,7 +318,7 @@ export default function Review(props: { sessionId: string; onBack: () => void })
     setError(null);
     setNotice(null);
     try {
-      const next = await api.saveReview(sessionId, { expectedRevision: bundle.bundleRevision, edits });
+      const next = await src.saveReview(sessionId, { expectedRevision: bundle.bundleRevision, edits });
       if (!mounted.current) return;
       setDetail((d) =>
         d ? { ...d, bundle: next, session: { ...d.session, currentBundleRevision: next.bundleRevision } } : d,
@@ -332,7 +346,7 @@ export default function Review(props: { sessionId: string; onBack: () => void })
     setError(null);
     setNotice(null);
     try {
-      const res = await api.approve(sessionId, { expectedRevision: rev, idempotencyKey });
+      const res = await src.approve(sessionId, { expectedRevision: rev, idempotencyKey });
       if (!mounted.current) return;
       setDetail((d) => (d ? { ...d, approval: res.data.approval } : d));
       if (res.status === 202 || res.data.finalization === "pending") {
@@ -554,14 +568,14 @@ export default function Review(props: { sessionId: string; onBack: () => void })
           </div>
         </Section>
       ) : null}
-      {!bundle && historySection}
+      {!bundle && !linkMode && historySection}
       {!bundle ? null : (
         <div className="rv-grid">
           <motion.div className="rv-main" variants={rvStagger}>
             <DocumentSections sections={bundle.documents.sections} onEvidence={onEvidence} activeEvidence={highlight} />
             <PlanCoverage entries={bundle.documents.planCoverage} />
             <EvidencePanel evidence={bundle.evidence} timezone={tz} highlightId={highlight} focusTick={focusTick} />
-            {historySection}
+            {!linkMode && historySection}
           </motion.div>
 
           <motion.aside className="rv-rail" variants={rvStagger} aria-label="Review summary and actions">
@@ -637,7 +651,7 @@ export default function Review(props: { sessionId: string; onBack: () => void })
             </motion.section>
 
             <AmendBanner detail={detail} />
-            {completed && <FilesCard sessionId={sessionId} revision={detail.approval?.bundleRevision ?? revision} />}
+            {completed && !linkMode && <FilesCard sessionId={sessionId} revision={detail.approval?.bundleRevision ?? revision} />}
 
             <TimePanel time={bundle.documents.timeSummary} />
             <BillingPanel billing={bundle.billing} revision={bundle.bundleRevision} />
@@ -675,14 +689,16 @@ export default function Review(props: { sessionId: string; onBack: () => void })
                 )}
               </motion.section>
             )}
-            {detail.approval && <ApprovalRecordPanel approval={detail.approval} timezone={tz} completed={completed} />}
-            <AmendCard
-              detail={detail}
-              onChanged={async () => {
-                const d = await fetchDetail();
-                if (d) setValues(initialValues(d.bundle));
-              }}
-            />
+            {detail.approval && !linkMode && <ApprovalRecordPanel approval={detail.approval} timezone={tz} completed={completed} />}
+            {!linkMode && (
+              <AmendCard
+                detail={detail}
+                onChanged={async () => {
+                  const d = await fetchDetail();
+                  if (d) setValues(initialValues(d.bundle));
+                }}
+              />
+            )}
           </motion.aside>
         </div>
       )}

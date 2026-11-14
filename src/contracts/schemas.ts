@@ -437,7 +437,7 @@ export const HealthResponse = z.object({
   evidenceMode: SourceMode,
   extractionMode: SourceMode,
   runtimeMode: RuntimeMode,
-  authMode: z.enum(["dev", "access"]),
+  authMode: z.enum(["dev", "access", "public"]),
   bindings: z.object({ db: z.boolean(), queue: z.boolean(), workflow: z.boolean() }),
 });
 export type HealthResponse = z.infer<typeof HealthResponse>;

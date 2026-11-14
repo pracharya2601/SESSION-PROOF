@@ -193,6 +193,10 @@ export async function stopVisitAs(deps: ApiDeps, c: Context<AppBindings>, provid
   if (!sessionId) {
     const appt = await deps.repo.getAppointment(stopped.appointmentId);
     if (!appt) return apiError(c, 500, "INTERNAL", "Visit appointment missing", true);
+    // An offline recording (src/offline) keeps its appointment canceled until its transcript is stored.
+    if (appt.canceled) {
+      return apiError(c, 409, "VISIT_PENDING_UPLOAD", "This offline recording is still being uploaded or transcribed.", true);
+    }
     sessionId = (await v.enqueueAppointment(appt)).sessionId;
     await v.store.setSession(stopped.id, sessionId);
   }

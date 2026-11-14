@@ -113,8 +113,31 @@ Every request sends `Authorization: Bearer vfad_…`. **No `Origin` header is ne
 | `POST /api/device/visits` `{ clientRef, bandNumber: 1..999\|null, transport, timezone?, transcriber?: "server"\|"device" }` | `201 { visit, streamUrl, streamTokenExpiresAt }`, the same as `POST /api/visits` (service plan from the client's last appointment, `422 NO_SERVICE_PLAN`, `PUBLIC_STREAM_ORIGIN`). Default `transcriber: "server"`: the phone only records and streams audio, the Worker transcribes (Deepgram; simulated in local dev without a key; deployed without a key → `503 TRANSCRIPTION_NOT_CONFIGURED`). `"device"`: on-phone transcription, `visit.transcriber = "device"` (optional path) |
 | `GET /api/device/visits/:id` | `{ visit, segments }` |
 | `POST /api/device/visits/:id/stop` | `{ visit, sessionId }` (idempotent, same logic as the cookie route) |
+| `GET /api/device/inbox` | `{ items: DeviceInboxItem[], generatedAt }`: visits waiting for the provider's review, newest first (max 20). See [Review inbox](#review-inbox-phone-notifications) |
 
-Errors: missing/malformed/unknown key → `401 UNAUTHENTICATED`; removed device → `401 DEVICE_REVOKED` (GlassCam should forget the pairing and ask to pair again). Streaming still uses the returned `streamUrl` (section 2). `POST /api/visits` (cookie) also accepts `transcriber: "device"`.
+**Offline recordings** (phone had no internet): `POST /api/device/offline-visits`, `PUT /api/device/offline-visits/:id/audio` (a VXREC1 file), `GET /api/device/offline-visits/:id`. Contract (frozen) `src/contracts/offline.ts`; full description [offline-recording.md](offline-recording.md).
+
+Errors: missing/malformed/unknown key → `401 UNAUTHENTICATED`; removed device → `401 DEVICE_REVOKED` (GlassCam should forget the pairing and ask to pair again).
+
+### Review inbox (phone notifications)
+When a visit finishes processing (`NEEDS_REVIEW`), the server creates a **review link** and posts an in-app notification. GlassCam polls `GET /api/device/inbox` (same bearer key; e.g. every 60 s while foregrounded, and on app open / background refresh) and shows a local notification for each `sessionId` it has not shown yet:
+
+```jsonc
+{ "data": { "generatedAt": "…", "items": [{
+  "sessionId": "sess_…", "clientRef": "C-104",
+  "serviceStartAt": "2026-11-13T15:00:00.000Z", "timezone": "America/Chicago",
+  "bundleRevision": 1, "blockingCount": 2, "minutesEstimate": 90,
+  "title": "Visit for C-104 is ready — tap to review",
+  "reviewUrl": "https://<PUBLIC_APP_ORIGIN>/r/vfrl_<43 chars>", "reviewUrlExpiresAt": "…",
+  "updatedAt": "…"
+}]}}
+```
+- Tapping the notification opens `reviewUrl` in Safari / `SFSafariViewController` (not a WebView that strips the path). It is the **full review page** (documents, checklist, corrections, Approve). Opening it approves nothing. No sign-in is needed: the token in the URL is the credential, scoped to that one session of that provider.
+- Dedupe on `sessionId` + `bundleRevision`: an amended visit comes back with a higher `bundleRevision` and a new `reviewUrl`. An item disappears from the inbox once the visit is approved; withdraw its notification then.
+- `reviewUrl` is stable across polls while the link is open. It is `null` only when the server has no `SESSION_SECRET`. Treat it as a secret: don't log it or put it in analytics.
+- The body carries the client **ref** only, never names or transcript. Keep the notification text to `title`.
+- Link errors shown by the page: expired after 7 days (`410 REVIEW_LINK_EXPIRED`), revoked in the app (`410 REVIEW_LINK_REVOKED`), already approved (`410 REVIEW_LINK_USED`, 15 min after completion), malformed/unknown (`401 INVALID_REVIEW_LINK`).
+- With Cloudflare Access in front of the whole hostname, the phone's browser signs in to Access first, then the link works as usual. Streaming still uses the returned `streamUrl` (section 2). `POST /api/visits` (cookie) also accepts `transcriber: "device"`.
 
 ## Transcribers
 | | When | Evidence label |

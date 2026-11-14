@@ -56,6 +56,8 @@ export interface WorkflowDeps {
   recorder?: RunRecorder;
   /** v3: client record for the appointment (per-client rate + snapshot at finalization). */
   resolveClient?: (appointment: Appointment) => Promise<ClientRecord | null>;
+  /** Called once per processing revision when the draft is ready (review link + notifications). Failures are logged only. */
+  onNeedsReview?: (sessionId: string) => Promise<unknown>;
 }
 
 type RecordInput = Parameters<RunRecorder["record"]>[0];
@@ -171,6 +173,17 @@ export async function runSessionWorkflow(
   if (!DRAFTED.includes(prepared.status as SessionStatus)) {
     // Should be unreachable: prepareDraft only returns drafted/terminal/STALE.
     throw new Error(`unexpected prepare status ${prepared.status}`);
+  }
+  if (prepared.status === "NEEDS_REVIEW" && deps.onNeedsReview) {
+    await step.do(`notify review r${rev}`, async () => {
+      try {
+        await deps.onNeedsReview!(sessionId);
+        return { ok: true };
+      } catch (err) {
+        log("workflow.on_needs_review_failed", { sessionId, error: err instanceof Error ? err.name : "unknown" });
+        return { ok: false };
+      }
+    });
   }
 
   // ---------------------------------------------------------------- d. approval loop

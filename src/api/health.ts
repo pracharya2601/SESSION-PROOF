@@ -14,7 +14,7 @@ export function healthRoutes(deps: ApiDeps): Hono<AppBindings> {
       evidenceMode: env.EVIDENCE_MODE === "live" ? "live" : "fixture",
       extractionMode: env.EXTRACTION_MODE === "live" ? "live" : "fixture",
       runtimeMode: env.RUNTIME_MODE === "deployed" ? "deployed" : "local",
-      authMode: env.AUTH_MODE === "access" ? "access" : "dev",
+      authMode: env.AUTH_MODE === "access" ? "access" : env.AUTH_MODE === "public" ? "public" : "dev",
       bindings: {
         db: Boolean(env.DB),
         queue: Boolean(env.SESSION_QUEUE),

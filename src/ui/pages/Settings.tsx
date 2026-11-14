@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { Bot, HardDrive, Mail, RefreshCw, Smartphone } from "lucide-react";
+import { BellRing, Bot, HardDrive, Mail, RefreshCw, Smartphone } from "lucide-react";
 import type { Connection, SettingsBundle } from "../../contracts";
 import { api } from "../api";
 import { Button, Card, Dialog, ErrorNotice, PageHeader, Skeleton, TabPanel, Tabs, fadeOnly } from "../design";
@@ -9,15 +9,17 @@ import { EmailTab } from "../components/settings/EmailTab";
 import { StorageTab } from "../components/settings/StorageTab";
 import { SyncTab } from "../components/settings/SyncTab";
 import { DevicesSection } from "../components/settings/DevicesSection";
+import { NotificationsSection } from "../components/settings/NotificationsSection";
 import "../components/settings/u2.css";
 
-type TabKey = "sync" | "storage" | "email" | "ai" | "devices";
+type TabKey = "sync" | "storage" | "email" | "ai" | "devices" | "notifications";
 const TABS: { id: TabKey; label: string; icon: ReactNode }[] = [
   { id: "sync", label: "Sync", icon: <RefreshCw size={15} /> },
   { id: "storage", label: "Storage", icon: <HardDrive size={15} /> },
   { id: "email", label: "Email", icon: <Mail size={15} /> },
   { id: "ai", label: "AI & Privacy", icon: <Bot size={15} /> },
   { id: "devices", label: "Devices", icon: <Smartphone size={15} /> },
+  { id: "notifications", label: "Notifications", icon: <BellRing size={15} /> },
 ];
 const IDBASE = "settings";
 
@@ -72,7 +74,7 @@ export default function Settings() {
     window.history.replaceState(null, "", `${base}?tab=${next}`);
   }
 
-  const needsBundle = tab !== "sync" && tab !== "devices";
+  const needsBundle = tab !== "sync" && tab !== "devices" && tab !== "notifications";
 
   return (
     <div className="u2-page">
@@ -115,6 +117,8 @@ export default function Settings() {
               <SyncTab onDirtyChange={onDirty} />
             ) : tab === "devices" ? (
               <DevicesSection />
+            ) : tab === "notifications" ? (
+              <NotificationsSection onDirtyChange={onDirty} />
             ) : tab === "storage" ? (
               <StorageTab bundle={bundle!} connections={connections} onSaved={setBundle} onDirtyChange={onDirty} />
             ) : tab === "email" ? (

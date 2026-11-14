@@ -270,7 +270,9 @@ describe("createApi", () => {
       method: "POST",
       headers: { "Cf-Access-Authenticated-User-Email": P1.identity, Origin: ORIGIN },
     });
-    expect(res.status).toBe(404);
+    // Access mode without ACCESS_TEAM_DOMAIN/ACCESS_AUD fails closed before any route (and
+    // never trusts the plain email header); with Access configured the dev route is 404.
+    expect(res.status).toBe(503);
     expect(accessSeed).not.toHaveBeenCalled();
   });
 

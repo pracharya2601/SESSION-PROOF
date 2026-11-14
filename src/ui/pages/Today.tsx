@@ -17,6 +17,7 @@ import {
 import type { SessionStatus, SessionSummary, SyncSettingsView } from "../../contracts";
 import { api, ApiClientError } from "../api";
 import { ErrorNotice } from "../components/ErrorNotice";
+import { ApprovalsCard } from "../components/notify/ApprovalsCard";
 import { formatCents, formatTimeRange } from "../components/format";
 import {
   ACTIVE_STATUSES,
@@ -387,6 +388,8 @@ export default function Today({ devMode }: { devMode: boolean }) {
           </div>
         )}
       </div>
+
+      {load.kind === "ready" && <ApprovalsCard sessions={sessions} />}
 
       {load.kind === "loading" && (
         <div className="session-grid" aria-busy="true" aria-label="Loading sessions">

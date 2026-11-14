@@ -11,6 +11,7 @@
  */
 import {
   APPROVAL_EVENT_TYPE,
+  OfflineTranscribeJob,
   QueuePayload,
   deliveryKey,
   sessionIdFor,
@@ -42,6 +43,14 @@ export interface JobDeps {
   finalizeDirect?: (approval: ApprovalRecord) => Promise<void>;
   /** v3: run history (best-effort; never fails discovery). */
   recorder?: RunRecorder;
+  /**
+   * Offline recordings: runs one "transcribe_offline" queue message (src/offline/job.ts).
+   * `attempt` = the message's delivery count (1-based). Absent → such messages are acked and logged.
+   */
+  transcribeOffline?: (
+    job: OfflineTranscribeJob,
+    attempt: number,
+  ) => Promise<{ retry: false } | { retry: true; delaySeconds: number }>;
 }
 
 export const DEFAULT_LOOKBACK_MINUTES = 7 * 24 * 60;
@@ -243,6 +252,11 @@ export async function dispatchPendingDeliveries(deps: JobDeps): Promise<Dispatch
 // ------------------------------------------------------------------ queue consumer
 export async function handleQueueBatch(batch: MessageBatch<unknown>, deps: JobDeps): Promise<void> {
   for (const msg of batch.messages) {
+    const offline = OfflineTranscribeJob.safeParse(msg.body);
+    if (offline.success) {
+      await handleOfflineMessage(msg, offline.data, deps);
+      continue;
+    }
     const parsed = QueuePayload.safeParse(msg.body);
     if (!parsed.success) {
       log("queue.invalid_payload", { messageId: msg.id, issues: parsed.error.issues.length });
@@ -281,6 +295,21 @@ export async function handleQueueBatch(batch: MessageBatch<unknown>, deps: JobDe
   }
 }
 
+async function handleOfflineMessage(msg: Message<unknown>, job: OfflineTranscribeJob, deps: JobDeps): Promise<void> {
+  if (!deps.transcribeOffline) {
+    log("queue.offline_not_wired", { messageId: msg.id, visitId: job.visitId });
+    msg.ack();
+    return;
+  }
+  try {
+    const r = await deps.transcribeOffline(job, Math.max(1, Number(msg.attempts ?? 1)));
+    if (r.retry) msg.retry({ delaySeconds: r.delaySeconds });
+    else msg.ack();
+  } catch (err) {
+    log("queue.offline_retry", { messageId: msg.id, visitId: job.visitId, error: errKind(err) });
+    msg.retry();
+  }
+}
 
 /**
  * Scheduled heartbeat entry point. Runs discovery only for providers whose

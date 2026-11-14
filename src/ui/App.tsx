@@ -26,6 +26,11 @@ const TemplateEditor = lazy(() => import("./pages/TemplateEditor"));
 const Runs = lazy(() => import("./pages/Runs"));
 const RunDetail = lazy(() => import("./pages/RunDetail"));
 const RecordVisit = lazy(() => import("./pages/RecordVisit"));
+const ReviewLink = lazy(() => import("./pages/ReviewLink"));
+
+/** `/r/<token>` or `#/r/<token>`: a review link opens one visit without signing in (pages/ReviewLink.tsx). */
+const REVIEW_LINK_TOKEN = (/^\/r\/(vfrl_[A-Za-z0-9_-]{43})\/?$/.exec(window.location.pathname) ??
+  /^#\/r\/(vfrl_[A-Za-z0-9_-]{43})\/?$/.exec(window.location.hash))?.[1];
 
 const DEMO_IDENTITY = "demo.provider@example.invalid";
 const COLLAPSE_KEY = "vexo.sidebar.collapsed";
@@ -61,7 +66,13 @@ export default function App() {
   return (
     <MotionConfig reducedMotion="user">
       <ToastProvider>
-        <AppInner />
+        {REVIEW_LINK_TOKEN ? (
+          <Suspense fallback={<PageFallback />}>
+            <ReviewLink token={REVIEW_LINK_TOKEN} />
+          </Suspense>
+        ) : (
+          <AppInner />
+        )}
       </ToastProvider>
     </MotionConfig>
   );

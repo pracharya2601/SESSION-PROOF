@@ -5,11 +5,11 @@
  *  - AUTH_MODE "dev": HMAC-SHA256 signed server session cookie `vfa_session` issued by
  *    POST /auth/dev-login for a *known seeded* identity. Local/synthetic demo only; refused
  *    when RUNTIME_MODE is "deployed" (no public login bypass, handoff §16.1).
- *  - AUTH_MODE "access": Cloudflare Access in front of the Worker; identity read from
- *    `Cf-Access-Authenticated-User-Email` and mapped server-side to a provider id.
- *    TODO(production): verify the `Cf-Access-Jwt-Assertion` JWT (team JWKS, aud, iss, exp)
- *    instead of trusting the email header. The header is only safe when the Worker is
- *    reachable exclusively through Access (no workers.dev / unprotected routes).
+ *  - AUTH_MODE "access": Cloudflare Access in front of the Worker. The Access JWT
+ *    (`Cf-Access-Jwt-Assertion` header, else the `CF_Authorization` cookie) is verified
+ *    against the team JWKS (RS256, iss, aud, exp; ./access-jwt.ts) and its `email` claim is
+ *    mapped server-side to a provider id. The plain `Cf-Access-Authenticated-User-Email`
+ *    header is never trusted. ACCESS_TEAM_DOMAIN / ACCESS_AUD unset → 503 (fail closed).
  *
  * Provider identity is ALWAYS derived server-side; never accept providerId from clients.
  */
@@ -19,11 +19,24 @@ import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type { ApiDeps, Actor, AppBindings } from "../api/deps";
 import type { ApiFailure } from "../contracts/schemas";
+import { ACCESS_JWT_COOKIE, ACCESS_JWT_HEADER, accessConfig, isAmbiguousPath, verifyAccessJwt } from "./access-jwt";
+
+export {
+  ACCESS_JWT_COOKIE,
+  ACCESS_JWT_HEADER,
+  accessConfig,
+  isAmbiguousPath,
+  normaliseTeamDomain,
+  resetAccessJwksCache,
+  verifyAccessJwt,
+} from "./access-jwt";
 
 export const SESSION_COOKIE = "vfa_session";
 export const SESSION_TTL_SECONDS = 8 * 60 * 60;
 const MIN_SECRET_LENGTH = 32;
-const ACCESS_EMAIL_HEADER = "Cf-Access-Authenticated-User-Email";
+
+/** Access vars (plain `vars`, not secrets). Read through this type so src/env.ts stays frozen. */
+type AccessEnv = { ACCESS_TEAM_DOMAIN?: string; ACCESS_AUD?: string };
 
 // ------------------------------------------------------------------ encoding utils
 const enc = new TextEncoder();
@@ -63,6 +76,12 @@ export function correlationId(): MiddlewareHandler<AppBindings> {
     const id = crypto.randomUUID();
     c.set("correlationId", id);
     c.header("X-Correlation-Id", id);
+    // First middleware on every API request, so it doubles as the path-normalisation guard:
+    // an encoded dot/slash or dot segment could match an Access bypass path at the edge and
+    // a different route here (docs/deploy.md §5.1). Rejected before any router runs.
+    if (isAmbiguousPath(c.req.raw.url)) {
+      return apiError(c, 400, "BAD_PATH", "Request path is not in canonical form.", false);
+    }
     await next();
     // Ensure header survives handlers that build their own Response.
     if (!c.res.headers.has("X-Correlation-Id")) {
@@ -150,9 +169,18 @@ type ActorResult = { ok: true; actor: Actor } | { ok: false; status: number; cod
 async function resolveActor(deps: ApiDeps, c: Context): Promise<ActorResult> {
   const env = deps.env;
   if (env.AUTH_MODE === "access") {
-    const email = c.req.header(ACCESS_EMAIL_HEADER)?.trim().toLowerCase();
-    if (!email) return { ok: false, status: 401, code: "UNAUTHENTICATED", message: "Authentication required." };
-    // TODO(production): verify Cf-Access-Jwt-Assertion before trusting this header.
+    const cfg = accessConfig(env as AccessEnv);
+    if (!cfg) {
+      return { ok: false, status: 503, code: "AUTH_NOT_CONFIGURED", message: "Cloudflare Access is not configured (ACCESS_TEAM_DOMAIN, ACCESS_AUD)." };
+    }
+    const token = c.req.header(ACCESS_JWT_HEADER)?.trim() || getCookie(c, ACCESS_JWT_COOKIE)?.trim();
+    if (!token) return { ok: false, status: 401, code: "UNAUTHENTICATED", message: "Authentication required." };
+    const verified = await verifyAccessJwt(token, cfg, { nowMs: deps.clock.now().getTime(), fetch: deps.fetch });
+    if (!verified.ok) {
+      log("warn", "auth.access_jwt_rejected", { reason: verified.reason });
+      return { ok: false, status: 401, code: "UNAUTHENTICATED", message: "Access token is invalid or expired." };
+    }
+    const email = verified.email;
     const providerId = await deps.repo.findProviderByIdentity(email);
     if (!providerId) return { ok: false, status: 401, code: "UNAUTHENTICATED", message: "Identity is not mapped to a provider." };
     return { ok: true, actor: { providerId, identity: email } };
@@ -171,6 +199,13 @@ async function resolveActor(deps: ApiDeps, c: Context): Promise<ActorResult> {
       return { ok: false, status: 401, code: "UNAUTHENTICATED", message: "Session is no longer valid." };
     }
     return { ok: true, actor: { providerId: payload.providerId, identity: payload.identity } };
+  }
+  if (env.AUTH_MODE === "public") {
+    // Open public access, by the owner's explicit decision: no login; everyone acts as one provider.
+    // Device keys, stream tokens and review links keep their own checks.
+    const providerId = env.PUBLIC_PROVIDER_ID;
+    if (!providerId) return { ok: false, status: 503, code: "AUTH_NOT_CONFIGURED", message: "PUBLIC_PROVIDER_ID is not set." };
+    return { ok: true, actor: { providerId, identity: "public" } };
   }
   return { ok: false, status: 503, code: "AUTH_NOT_CONFIGURED", message: "Unknown authentication mode." };
 }

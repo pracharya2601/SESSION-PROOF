@@ -159,3 +159,27 @@ Fixture extraction makes no network call, so the controller is bypassed there.
 - **Upload to Drive/OneDrive.** The app creates the folder path from **Settings → Storage** (`{clientRef}` and `{serviceDate}` are expanded) and uploads the three PDFs: Session Note, Invoice and Approval Record. If **Auto-upload on completion** is on, this runs automatically when a session is COMPLETED.
 - **Email draft.** The app creates a **draft** in Gmail or Outlook with the rendered subject and body, the recipients and the PDF attachments, and returns a link that opens the draft. The app never sends mail. The user reviews the draft and presses Send in their mail client.
 - Tokens are stored encrypted and never returned by any API. `GET /api/connections` shows only the status, the account email and the scopes.
+
+## 7. Notification email (optional)
+Review links and in-app / phone notifications work with no setup (they only need `SESSION_SECRET`, which signs the link tokens; rotating it gives open sessions fresh links). Email is **off** until the server has a sender **and** the provider saves their own address and toggles in **Settings → Notifications**. Emails carry the client ref, service date, minutes, blocker count and the review link only, never names or visit content. Logs record ids and status codes, never the address.
+
+Link origin: `PUBLIC_APP_ORIGIN` (else `PUBLIC_STREAM_ORIGIN` mapped to http(s), else `APP_ORIGIN`), e.g. `https://field.example.com/r/vfrl_…`.
+
+Pick one sender (Resend wins when both are set, unless `NOTIFY_EMAIL_PROVIDER=cloudflare`):
+
+**Resend (any recipient):** verify your sending domain in Resend, then
+```sh
+npx wrangler secret put RESEND_API_KEY --env production
+# var:
+"NOTIFY_FROM": "Vexo Field Assistant <notify@field.example.com>"
+```
+
+**Cloudflare Email Workers `send_email`:** only works when Email Routing is enabled on the domain of `NOTIFY_FROM`, and only to destination addresses verified in Email Routing (each provider's notification address must be verified there first). Add the binding and the var to the environment in `wrangler.jsonc`:
+```jsonc
+"send_email": [{ "name": "NOTIFY_EMAIL" }],   // optionally "allowed_destination_addresses": ["you@example.com"]
+"vars": { "NOTIFY_FROM": "notify@field.example.com" }
+```
+
+Check it with **Settings → Notifications → Send test notification**: it reports "Email is not configured on the server" when no sender is set, and the Resend/Cloudflare error code when sending fails.
+
+With Cloudflare Access on the whole hostname, opening a review link first signs the provider in to Access (the link still works afterwards). Bypassing Access for `/r/*` and `/api/review-link/*` would make the token the only gate; that is a deployment decision.

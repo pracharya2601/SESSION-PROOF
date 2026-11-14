@@ -37,6 +37,7 @@ Dev login: `demo.provider@example.invalid` (an empty DB auto-seeds). Review → 
 | Clients + rates, run history | `src/clients/`, `src/history/` |
 | Band visits (Vexo band → Deepgram via Worker proxy → evidence) | `src/band/`, `src/api/visits.ts`, UI `#/visit`; protocol `docs/band-bridge.md` |
 | Paired phones (one revocable key) + device API | `src/devices/`, `src/api/device*.ts`, Settings → Devices |
+| Offline recordings (VXREC1 upload → R2 → Deepgram pre-recorded → segments) | `src/offline/`, `src/api/offline-visits.ts`, `docs/offline-recording.md` |
 | iPhone app (GlassCam, separate project, no git) | `~/Desktop/megent/GlassCam/GlassCam/Band/` — band BLE, visits, USB relay |
 | USB bridge (phone ↔ Mac over cable) | `scripts/band/usb-bridge.mjs`, `docs/usb-bridge.md` |
 | UI | `src/ui/` (`pages/`, `components/`, `design/`, `api.ts`) |

@@ -32,6 +32,9 @@ import { BandEvidenceSource, VisitRoutingEvidenceSource } from "./band/evidence"
 import { getScenarioLookup, loadScenarioLookup } from "./band/scenarios-registry";
 import { withScenarioExtraction } from "./band/scenario-extractor";
 import type { Repository } from "./db/repository";
+import { createNotifier, safeNotify } from "./notify";
+import { createOfflineStore } from "./offline/store";
+import { runOfflineTranscription, sweepOfflineAudio, type OfflineJobDeps } from "./offline/job";
 
 export { SessionWorkflow } from "./workflow";
 
@@ -42,9 +45,40 @@ function deliveryDeps(env: Env): DeliveryDeps {
   return { repo, env, clock, recorder: createRunRecorder(repo, clock) };
 }
 
+/** Approval hand-off (review links + inbox + optional email). Never fails the caller. */
+function notifier(env: Env) {
+  const repo = createRepository(env.DB);
+  return createNotifier({ repo, env, clock, recorder: createRunRecorder(repo, clock) });
+}
+/** Completion hook: close review links + "approved" notification, then the delivery hook. */
+async function onCompleted(env: Env, sessionId: string): Promise<unknown> {
+  await safeNotify("completed", sessionId, () => notifier(env).sessionCompleted(sessionId));
+  return onSessionCompleted(deliveryDeps(env), sessionId);
+}
+
+/** Stop-visit hand-off: enqueue the session, then the "visit sent" notification. */
+async function enqueueVisit(env: Env, jobs: JobDeps, appt: Parameters<typeof enqueueAppointment>[1]) {
+  const r = await enqueueAppointment(jobs, appt);
+  await safeNotify("visit_sent", r.sessionId, () => notifier(env).visitSent(appt, r.sessionId));
+  return r;
+}
+
+/** Offline recordings (src/offline): R2 temp audio → transcript → the same hand-off as a stopped visit. */
+function offlineDeps(env: Env, jobs: JobDeps): OfflineJobDeps {
+  return {
+    store: createOfflineStore(env.DB),
+    visits: createVisitStore(env.DB),
+    repo: jobs.repo,
+    bucket: env.AUDIO_TMP,
+    env,
+    clock,
+    enqueueAppointment: (appt) => enqueueVisit(env, jobs, appt),
+  };
+}
+
 function jobDeps(env: Env): JobDeps {
   const delivery = deliveryDeps(env);
-  return {
+  const jobs: JobDeps = {
     repo: delivery.repo,
     workflow: env.SESSION_WORKFLOW,
     queue: env.SESSION_QUEUE,
@@ -59,11 +93,13 @@ function jobDeps(env: Env): JobDeps {
           clock,
           recorder: delivery.recorder,
           resolveClient: (appt) => delivery.repo.getClient(appt.providerId, appt.clientRef),
-          onCompleted: (sessionId) => onSessionCompleted(delivery, sessionId),
+          onCompleted: (sessionId) => onCompleted(env, sessionId),
         },
         approval,
       ),
+    transcribeOffline: (job, attempt) => runOfflineTranscription(offlineDeps(env, jobs), job, attempt),
   };
+  return jobs;
 }
 
 /**
@@ -127,7 +163,8 @@ setWorkflowDepsFactory((env: Env) => {
   assemble: assembleBundle,
   clock,
   runtimeMode: (env.RUNTIME_MODE ?? "local") as RuntimeMode,
-  onCompleted: (sessionId: string) => onSessionCompleted(deliveryDeps(env), sessionId),
+  onCompleted: (sessionId: string) => onCompleted(env, sessionId),
+  onNeedsReview: (sessionId: string) => notifier(env).sessionNeedsReview(sessionId),
   };
 });
 
@@ -145,7 +182,7 @@ function apiDeps(env: Env): ApiDeps {
     seed: env.AUTH_MODE === "dev" && env.RUNTIME_MODE !== "deployed" ? () => seedDev(jobs.repo) : undefined,
     visits: {
       store: createVisitStore(env.DB),
-      enqueueAppointment: (appt) => enqueueAppointment(jobs, appt),
+      enqueueAppointment: (appt) => enqueueVisit(env, jobs, appt),
     },
   };
 }
@@ -168,6 +205,10 @@ export default {
       const sync = await runScheduledSync(jobs);
       // …but delivery recovery always runs, independent of user settings.
       const dispatch = await dispatchPendingDeliveries(jobs);
+      // Offline recordings: delete expired temp audio, fail stuck transcriptions (never throws the heartbeat).
+      await sweepOfflineAudio(offlineDeps(env, jobs)).catch((err: unknown) =>
+        console.log(JSON.stringify({ level: "warn", event: "offline.sweep_failed", errorName: err instanceof Error ? err.name : "unknown" })),
+      );
       console.log(JSON.stringify({ level: "info", event: "heartbeat.done", providersRun: sync.providersRun, enqueued: sync.enqueued, dispatched: dispatch.succeeded }));
     } catch (err) {
       console.log(JSON.stringify({ level: "error", event: "heartbeat.failed", error: err instanceof Error ? `${err.name}: ${err.message}` : "unknown" }));

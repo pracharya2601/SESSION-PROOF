@@ -101,20 +101,14 @@ describe("requireActor (dev mode)", () => {
   });
 });
 
-describe("requireActor (access mode)", () => {
+describe("requireActor (access mode, no Access config)", () => {
   const app = makeApp(makeDeps({ AUTH_MODE: "access" }));
-  it("maps Access email header to provider", async () => {
+  it("fails closed with 503 and never trusts the plain email header", async () => {
     const r = await app.request("/api/protected/who", {
       headers: { "Cf-Access-Authenticated-User-Email": "Provider@Example.test" },
     });
-    expect(r.status).toBe(200);
-    expect(((await r.json()) as { data: { providerId: string } }).data.providerId).toBe("prov_1");
-  });
-  it("401 for unmapped or missing header; cookie ignored", async () => {
-    const r1 = await app.request("/api/protected/who", { headers: { "Cf-Access-Authenticated-User-Email": "x@y.z" } });
-    expect(r1.status).toBe(401);
-    const r2 = await app.request("/api/protected/who", { headers: { Cookie: await cookieFor() } });
-    expect(r2.status).toBe(401);
+    expect(r.status).toBe(503);
+    expect(((await r.json()) as { error: { code: string } }).error.code).toBe("AUTH_NOT_CONFIGURED");
   });
   it("dev-login is 404 in access mode", async () => {
     const r = await app.request("/auth/dev-login", {
