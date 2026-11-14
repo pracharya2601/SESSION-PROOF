@@ -102,6 +102,10 @@ export class CaptureSession {
       case "stop":
         await this.finish();
         return true;
+      case "segment":
+        // Implemented with the "device" transcriber (on-phone transcription).
+        this.o.send({ type: "error", code: "segments_not_supported", message: "This visit does not accept device transcripts." });
+        return false;
     }
   }
 

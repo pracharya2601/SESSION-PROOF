@@ -5,3 +5,4 @@ export * from "./bundle";
 export * from "./v2";
 export * from "./v3";
 export * from "./band";
+export * from "./devices";

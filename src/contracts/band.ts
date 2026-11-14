@@ -13,6 +13,8 @@
  *    binary [u16 big-endian band seq][one Opus packet]                   50 per second
  *    text   {"type":"keepalive"}                                         when paused
  *    text   {"type":"stop"}                                              flush and finish
+ *    text   {"type":"segment","startMs":<epoch ms>,"endMs":<epoch ms>,"text":"…","speaker":null}
+ *           ONLY for transcriber "device": one final on-device transcript segment (audio optional/omitted)
  *  server -> client: VisitServerMessage (JSON text). "error" is informational unless the server
  *    then closes the socket. Audio sent during a reconnect gap does not exist, so it is not counted as lost.
  */
@@ -24,8 +26,13 @@ const Instant = z.string().datetime({ offset: true });
 export const BandTransport = z.enum(["ble", "serial", "sim"]);
 export type BandTransport = z.infer<typeof BandTransport>;
 
-/** "deepgram" = real speech to text; "simulated" = synthetic script (dev only, labelled fixture). */
-export const Transcriber = z.enum(["deepgram", "simulated"]);
+/**
+ * "deepgram" = server relays audio to Deepgram (live).
+ * "device"   = the phone transcribes on-device (Apple Speech) and sends TEXT segments only;
+ *              no audio reaches the server (live).
+ * "simulated" = synthetic script (dev only, labelled fixture).
+ */
+export const Transcriber = z.enum(["deepgram", "device", "simulated"]);
 export type Transcriber = z.infer<typeof Transcriber>;
 
 export const VisitStatus = z.enum(["recording", "stopped"]);
@@ -41,6 +48,8 @@ export const StartVisitRequest = z
     timezone: z.string().min(1).max(64).optional(),
     /** Dev only (simulated transcriber): synthetic scenario id from fixtures/band. Rejected when deployed or live. */
     scenario: z.string().regex(/^[a-z0-9-]{1,64}$/).optional(),
+    /** "device": the phone transcribes and sends text segments (works deployed, no key needed). Default: server choice. */
+    transcriber: z.literal("device").optional(),
   })
   .strict();
 export type StartVisitRequest = z.infer<typeof StartVisitRequest>;
@@ -112,10 +121,20 @@ export type VisitServerMessage =
   | { type: "error"; code: string; message: string }
   | { type: "done"; segmentCount: number };
 
+export const DeviceSegment = z.object({
+  type: z.literal("segment"),
+  startMs: z.number().int().positive(),
+  endMs: z.number().int().positive(),
+  text: z.string().trim().min(1).max(4000),
+  speaker: z.string().max(64).nullable().default(null),
+});
+export type DeviceSegment = z.infer<typeof DeviceSegment>;
+
 export const VisitClientControl = z.discriminatedUnion("type", [
   z.object({ type: z.literal("start"), audioStartMs: z.number().int().positive() }),
   z.object({ type: z.literal("keepalive") }),
   z.object({ type: z.literal("stop") }),
+  DeviceSegment,
 ]);
 export type VisitClientControl = z.infer<typeof VisitClientControl>;
 
