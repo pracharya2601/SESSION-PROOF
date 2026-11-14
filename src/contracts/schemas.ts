@@ -164,7 +164,8 @@ export type SessionFacts = z.infer<typeof SessionFacts>;
 
 export const ProviderAttestation = z.object({
   id: Id,
-  field: z.enum(["progress", "duration"]),
+  /** v3 adds participant_direction (text = "yes"/"no" + optional choices, see ReviewEdits). */
+  field: z.enum(["progress", "duration", "participant_direction", "participant_choices"]),
   text: ShortText,
   actorProviderId: Id,
   attestedAt: Instant,
@@ -304,9 +305,13 @@ export const ReviewEdits = z
   .object({
     confirmedMinutes: z.number().int().positive().max(MAX_CONFIRMED_MINUTES).optional(),
     progressConfirmation: z.string().trim().min(1).max(2000).optional(),
+    /** v3 self-determination: did the participant direct the activity? */
+    participantDirected: z.boolean().optional(),
+    /** v3: participant's own choices / preferences, in the provider's words. */
+    participantChoices: z.string().trim().min(1).max(1000).optional(),
   })
   .strict()
-  .refine((e) => e.confirmedMinutes !== undefined || e.progressConfirmation !== undefined, {
+  .refine((e) => Object.values(e).some((v) => v !== undefined), {
     message: "At least one allowed edit is required",
   });
 export type ReviewEdits = z.infer<typeof ReviewEdits>;

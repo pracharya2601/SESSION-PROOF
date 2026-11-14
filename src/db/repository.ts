@@ -23,6 +23,14 @@ import type {
   OAuthPending,
   StorageSettings,
   StoredConnection,
+  ClientInput,
+  ClientRecord,
+  ClientSnapshot,
+  ClientStats,
+  DocumentTemplate,
+  RunEvent,
+  RunSummary,
+  TemplateInput,
 } from "../contracts";
 
 /** v2 adds "file_delivery": an auto drive upload after completion (payload: { deliveryId }). */
@@ -188,4 +196,31 @@ export interface Repository {
   ): Promise<{ items: { session: SessionRecord; final: FinalBundle; approval: ApprovalRecord }[]; nextCursor: string | null }>;
   /** Generic pending delivery insert (used for "file_delivery"). Idempotent per deliveryKey. */
   enqueuePendingDelivery(d: { deliveryKey: string; operation: PendingOperation; sessionId: string; revision: number; payload: Record<string, unknown> }, now: Date): Promise<void>;
+
+  // ================================================================ v3
+  // ---- clients (provider-scoped; clientRef unique per provider)
+  listClients(providerId: string, opts: { includeInactive: boolean; search?: string; limit: number }): Promise<{ client: ClientRecord; stats: ClientStats }[]>;
+  getClient(providerId: string, clientRef: string): Promise<ClientRecord | null>;
+  /** Insert or update. rateVersion starts at 1 and is bumped iff hourlyRateCents changes. */
+  upsertClient(providerId: string, input: ClientInput, now: Date): Promise<ClientRecord>;
+  /** Snapshot frozen for a finalized revision (idempotent per session+revision). */
+  saveClientSnapshot(sessionId: string, bundleRevision: number, snapshot: ClientSnapshot): Promise<void>;
+  getClientSnapshot(sessionId: string, bundleRevision: number): Promise<ClientSnapshot | null>;
+
+  // ---- document templates (provider-scoped; built-ins are NOT stored — callers merge them)
+  listTemplates(providerId: string, kind?: string): Promise<DocumentTemplate[]>;
+  getTemplate(providerId: string, id: string): Promise<DocumentTemplate | null>;
+  createTemplate(providerId: string, id: string, input: TemplateInput, now: Date): Promise<DocumentTemplate>;
+  updateTemplate(providerId: string, id: string, input: TemplateInput, now: Date): Promise<DocumentTemplate | null>;
+  deleteTemplate(providerId: string, id: string): Promise<boolean>;
+  /** Default template id per kind (may be a builtin id); null = builtin default. */
+  getDefaultTemplateId(providerId: string, kind: string): Promise<string | null>;
+  setDefaultTemplateId(providerId: string, kind: string, id: string | null, now: Date): Promise<void>;
+
+  // ---- run history
+  /** INSERT OR IGNORE by id (retried steps don't duplicate). */
+  appendRunEvent(e: RunEvent): Promise<void>;
+  listRunEvents(runId: string, providerId: string): Promise<RunEvent[]>;
+  /** Runs aggregated from events, newest first; status filter optional; cursor pagination ≤50. */
+  listRuns(providerId: string, opts: { status?: RunSummary["status"]; sessionId?: string; limit: number; cursor: string | null }): Promise<{ runs: RunSummary[]; nextCursor: string | null }>;
 }
