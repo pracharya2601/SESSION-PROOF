@@ -406,3 +406,41 @@ describe("approval notification", () => {
     expect(workflow.events).toHaveLength(0);
   });
 });
+
+describe("run history (v3)", () => {
+  type Rec = Parameters<import("../contracts").RunRecorder["record"]>[0];
+  function fakeRecorder() {
+    const events: Rec[] = [];
+    return { events, record: async (e: Rec) => void events.push(e) };
+  }
+
+  it("discovery emits discovered (new session) + queued with the workflow run id", async () => {
+    const rec = fakeRecorder();
+    deps.recorder = rec;
+    repo.appointments = [appt()];
+    await discoverSessions(deps);
+    const sid = await sessionIdFor("prov-1", "occ-1");
+    const runId = workflowInstanceId(sid, 1);
+    expect(rec.events.map((e) => [e.stage, e.status, e.runId])).toEqual([
+      ["discovered", "succeeded", runId],
+      ["queued", "succeeded", runId],
+    ]);
+    expect(rec.events.every((e) => e.providerId === "prov-1" && e.sessionId === sid && e.runKind === "processing")).toBe(true);
+
+    // Re-discovery of a known, in-flight session emits nothing new.
+    await discoverSessions(deps);
+    expect(rec.events).toHaveLength(2);
+
+    // Re-enqueue emits queued for the new revision only.
+    repo.sessions.get(sid)!.status = "NO_EVIDENCE";
+    await discoverSessions(deps);
+    expect(rec.events.slice(2).map((e) => [e.stage, e.runId])).toEqual([["queued", workflowInstanceId(sid, 2)]]);
+  });
+
+  it("a throwing recorder never fails discovery", async () => {
+    deps.recorder = { record: async () => { throw new Error("db down"); } };
+    repo.appointments = [appt()];
+    const s = await discoverSessions(deps);
+    expect(s.enqueued).toBe(1);
+  });
+});

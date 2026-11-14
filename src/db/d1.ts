@@ -33,6 +33,18 @@ import {
   StorageSettings,
   type OAuthPending,
   type StoredConnection,
+  ClientInput,
+  ClientRecord,
+  ClientSnapshot,
+  ClientStats,
+  CustomField,
+  DocumentTemplate,
+  RunEvent,
+  RunSummary,
+  TemplateInput,
+  TemplateSection,
+  TemplateText,
+  TemplateTheme,
 } from "../contracts";
 import type {
   ApprovalWrite,
@@ -265,6 +277,109 @@ function decodeCursor(cursor: string): { startMs: number; id: string } {
 export function backoffMs(attempts: number): number {
   const exp = Math.min(Math.max(attempts, 0), 30);
   return Math.min(BACKOFF_BASE_MS * 2 ** exp, BACKOFF_MAX_MS);
+}
+
+// ------------------------------------------------------------------ v3 helpers
+
+const CLIENT_LIST_MAX = 500;
+const TEMPLATE_KINDS = ["session_note", "invoice", "approval_record"] as const;
+
+const ClientTemplatesSchema = ClientInput.shape.templates;
+const TemplateConfigSchema = z.object({
+  theme: TemplateTheme,
+  sections: z.array(TemplateSection),
+  text: TemplateText,
+});
+const RunMetaSchema = RunEvent.shape.meta;
+
+function nullableNumber(v: unknown): number | null {
+  return v === null || v === undefined ? null : Number(v);
+}
+
+function rowToClient(r: Row): ClientRecord {
+  return ClientRecord.parse({
+    providerId: r.provider_id,
+    clientRef: r.client_ref,
+    displayName: r.display_name ?? null,
+    preferredName: r.preferred_name ?? null,
+    hourlyRateCents: nullableNumber(r.hourly_rate_cents),
+    fundingSource: r.funding_source ?? null,
+    authorizationNumber: r.authorization_number ?? null,
+    fiscalIntermediary: r.fiscal_intermediary ?? null,
+    authorizedHours: nullableNumber(r.authorized_hours),
+    caseManager: r.case_manager ?? null,
+    customFields: z.array(CustomField).parse(JSON.parse(String(r.custom_fields_json))),
+    templates: ClientTemplatesSchema.parse(JSON.parse(String(r.templates_json))),
+    notes: r.notes ?? null,
+    active: Number(r.active) === 1,
+    rateVersion: Number(r.rate_version),
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  });
+}
+
+function rowToClientStats(r: Row): ClientStats {
+  const lastMs = nullableNumber(r.st_last_ms);
+  return ClientStats.parse({
+    sessions: Number(r.st_sessions ?? 0),
+    completed: Number(r.st_completed ?? 0),
+    needsReview: Number(r.st_needs_review ?? 0),
+    billedCents: Number(r.st_billed_cents ?? 0),
+    billedMinutes: Number(r.st_billed_minutes ?? 0),
+    lastServiceAt: lastMs === null ? null : new Date(lastMs).toISOString(),
+  });
+}
+
+function rowToTemplate(r: Row): DocumentTemplate {
+  const cfg = TemplateConfigSchema.parse(JSON.parse(String(r.config_json)));
+  return DocumentTemplate.parse({
+    id: r.id,
+    kind: r.kind,
+    name: r.name,
+    theme: cfg.theme,
+    sections: cfg.sections,
+    text: cfg.text,
+    builtin: false,
+    isDefault: r.default_kind !== null && r.default_kind !== undefined,
+    updatedAt: r.updated_at,
+  });
+}
+
+function rowToRunEvent(r: Row): RunEvent {
+  return RunEvent.parse({
+    id: r.id,
+    runId: r.run_id,
+    runKind: r.run_kind,
+    sessionId: r.session_id,
+    providerId: r.provider_id,
+    stage: r.stage,
+    status: r.status,
+    label: r.label,
+    detail: r.detail ?? null,
+    meta: RunMetaSchema.parse(JSON.parse(String(r.meta_json))),
+    at: r.at,
+  });
+}
+
+/** LIKE pattern for a case-insensitive substring match, with %, _ and \ escaped (ESCAPE '\'). */
+function likeContains(search: string): string {
+  return `%${search.toLowerCase().replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+}
+
+function encodeRunCursor(startedMs: number, runId: string): string {
+  return btoa(JSON.stringify(["run", startedMs, runId]));
+}
+
+function decodeRunCursor(cursor: string): { startedMs: number; runId: string } {
+  try {
+    const v: unknown = JSON.parse(atob(cursor));
+    if (Array.isArray(v) && v.length === 3 && v[0] === "run" && Number.isSafeInteger(v[1]) && typeof v[2] === "string") {
+      return { startedMs: v[1] as number, runId: v[2] };
+    }
+  } catch {
+    // fall through
+  }
+  throw new RangeError("invalid cursor");
 }
 
 // ------------------------------------------------------------------ factory
@@ -1183,7 +1298,323 @@ export function createRepository(db: D1Database): Repository {
         .bind(v.deliveryKey, v.operation, v.sessionId, v.revision, JSON.stringify(v.payload), t, t, t)
         .run();
     },
+
+    // ================================================================ v3
+    // ---------------------------------------------------------------- clients
+    async listClients(providerId, opts) {
+      const limit = Math.min(Math.max(Math.floor(opts.limit) || 1, 1), CLIENT_LIST_MAX);
+      const search = opts.search?.trim() ?? "";
+      const where: string[] = ["c.provider_id = ?"];
+      const params: unknown[] = [providerId, providerId];
+      if (!opts.includeInactive) where.push("c.active = 1");
+      if (search) {
+        const pat = likeContains(search);
+        where.push(
+          "(LOWER(c.client_ref) LIKE ? ESCAPE '\\' OR LOWER(COALESCE(c.display_name, '')) LIKE ? ESCAPE '\\' OR LOWER(COALESCE(c.preferred_name, '')) LIKE ? ESCAPE '\\')",
+        );
+        params.push(pat, pat, pat);
+      }
+      params.push(limit);
+      // params order: stats subquery providerId, then c.provider_id, then search, then limit
+      const sql = `
+        SELECT c.*,
+               st.sessions AS st_sessions, st.completed AS st_completed, st.needs_review AS st_needs_review,
+               st.billed_cents AS st_billed_cents, st.billed_minutes AS st_billed_minutes, st.last_ms AS st_last_ms
+        FROM clients c
+        LEFT JOIN (
+          SELECT a.client_ref AS client_ref,
+                 COUNT(*) AS sessions,
+                 SUM(CASE WHEN s.status = 'COMPLETED' THEN 1 ELSE 0 END) AS completed,
+                 SUM(CASE WHEN s.status = 'NEEDS_REVIEW' THEN 1 ELSE 0 END) AS needs_review,
+                 SUM(CASE WHEN f.session_id IS NOT NULL THEN COALESCE(json_extract(f.bundle_json, '$.billing.amountCents'), 0) ELSE 0 END) AS billed_cents,
+                 SUM(CASE WHEN f.session_id IS NOT NULL THEN COALESCE(json_extract(f.bundle_json, '$.billing.confirmedMinutes'), 0) ELSE 0 END) AS billed_minutes,
+                 MAX(a.start_ms) AS last_ms
+          FROM sessions s
+          JOIN appointments a ON a.id = s.appointment_id AND a.provider_id = s.provider_id
+          LEFT JOIN final_bundles f ON f.session_id = s.id
+          WHERE s.provider_id = ?
+          GROUP BY a.client_ref
+        ) st ON st.client_ref = c.client_ref
+        WHERE ${where.join(" AND ")}
+        ORDER BY (st.last_ms IS NULL), st.last_ms DESC, c.client_ref ASC
+        LIMIT ?`;
+      const { results } = await db.prepare(sql).bind(...params).all<Row>();
+      return results.map((r) => ({ client: rowToClient(r), stats: rowToClientStats(r) }));
+    },
+    async getClient(providerId, clientRef) {
+      const r = await db
+        .prepare("SELECT * FROM clients WHERE provider_id = ? AND client_ref = ?")
+        .bind(providerId, clientRef)
+        .first<Row>();
+      return r ? rowToClient(r) : null;
+    },
+    async upsertClient(providerId, inputIn, now) {
+      const input = ClientInput.parse(inputIn);
+      const t = iso(now);
+      // rate_version: 1 on insert; +1 on update iff hourly_rate_cents changes (IS handles NULLs).
+      const r = await db
+        .prepare(
+          `INSERT INTO clients (provider_id, client_ref, display_name, preferred_name, hourly_rate_cents, funding_source,
+             authorization_number, fiscal_intermediary, authorized_hours, case_manager, custom_fields_json, templates_json,
+             notes, active, rate_version, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+           ON CONFLICT(provider_id, client_ref) DO UPDATE SET
+             display_name = excluded.display_name,
+             preferred_name = excluded.preferred_name,
+             hourly_rate_cents = excluded.hourly_rate_cents,
+             funding_source = excluded.funding_source,
+             authorization_number = excluded.authorization_number,
+             fiscal_intermediary = excluded.fiscal_intermediary,
+             authorized_hours = excluded.authorized_hours,
+             case_manager = excluded.case_manager,
+             custom_fields_json = excluded.custom_fields_json,
+             templates_json = excluded.templates_json,
+             notes = excluded.notes,
+             active = excluded.active,
+             rate_version = CASE WHEN clients.hourly_rate_cents IS excluded.hourly_rate_cents
+                                 THEN clients.rate_version ELSE clients.rate_version + 1 END,
+             updated_at = excluded.updated_at
+           RETURNING *`,
+        )
+        .bind(
+          providerId,
+          input.clientRef,
+          input.displayName,
+          input.preferredName,
+          input.hourlyRateCents,
+          input.fundingSource,
+          input.authorizationNumber,
+          input.fiscalIntermediary,
+          input.authorizedHours,
+          input.caseManager,
+          JSON.stringify(input.customFields),
+          JSON.stringify(input.templates),
+          input.notes,
+          input.active ? 1 : 0,
+          t,
+          t,
+        )
+        .first<Row>();
+      if (r) return rowToClient(r);
+      const stored = await repo.getClient(providerId, input.clientRef);
+      if (!stored) throw new Error("client upsert failed");
+      return stored;
+    },
+    async saveClientSnapshot(sessionId, bundleRevision, snapshotIn) {
+      const snapshot = ClientSnapshot.parse(snapshotIn);
+      await db
+        .prepare(
+          "INSERT OR IGNORE INTO client_snapshots (session_id, bundle_revision, snapshot_json, captured_at) VALUES (?, ?, ?, ?)",
+        )
+        .bind(sessionId, bundleRevision, JSON.stringify(snapshot), snapshot.capturedAt)
+        .run();
+    },
+    async getClientSnapshot(sessionId, bundleRevision) {
+      const r = await db
+        .prepare("SELECT snapshot_json FROM client_snapshots WHERE session_id = ? AND bundle_revision = ?")
+        .bind(sessionId, bundleRevision)
+        .first<Row>();
+      return r ? ClientSnapshot.parse(JSON.parse(String(r.snapshot_json))) : null;
+    },
+
+    // ---------------------------------------------------------------- templates
+    async listTemplates(providerId, kind) {
+      const sql = `
+        SELECT t.*, d.kind AS default_kind
+        FROM document_templates t
+        LEFT JOIN default_templates d ON d.provider_id = t.provider_id AND d.kind = t.kind AND d.template_id = t.id
+        WHERE t.provider_id = ? ${kind ? "AND t.kind = ?" : ""}
+        ORDER BY t.kind ASC, t.name COLLATE NOCASE ASC, t.id ASC`;
+      const { results } = await db
+        .prepare(sql)
+        .bind(...(kind ? [providerId, kind] : [providerId]))
+        .all<Row>();
+      return results.map(rowToTemplate);
+    },
+    async getTemplate(providerId, id) {
+      const r = await db
+        .prepare(
+          `SELECT t.*, d.kind AS default_kind
+           FROM document_templates t
+           LEFT JOIN default_templates d ON d.provider_id = t.provider_id AND d.kind = t.kind AND d.template_id = t.id
+           WHERE t.provider_id = ? AND t.id = ?`,
+        )
+        .bind(providerId, id)
+        .first<Row>();
+      return r ? rowToTemplate(r) : null;
+    },
+    async createTemplate(providerId, id, inputIn, now) {
+      const input = TemplateInput.parse(inputIn);
+      const t = iso(now);
+      await db
+        .prepare(
+          `INSERT INTO document_templates (id, provider_id, kind, name, config_json, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(id, providerId, input.kind, input.name, JSON.stringify({ theme: input.theme, sections: input.sections, text: input.text }), t, t)
+        .run();
+      const stored = await repo.getTemplate(providerId, id);
+      if (!stored) throw new Error("template create failed");
+      return stored;
+    },
+    async updateTemplate(providerId, id, inputIn, now) {
+      const input = TemplateInput.parse(inputIn);
+      const results = await db.batch([
+        db
+          .prepare(
+            `UPDATE document_templates SET kind = ?, name = ?, config_json = ?, updated_at = ?
+             WHERE provider_id = ? AND id = ?`,
+          )
+          .bind(
+            input.kind,
+            input.name,
+            JSON.stringify({ theme: input.theme, sections: input.sections, text: input.text }),
+            iso(now),
+            providerId,
+            id,
+          ),
+        // A kind change invalidates a default set for the previous kind.
+        db
+          .prepare("DELETE FROM default_templates WHERE provider_id = ? AND template_id = ? AND kind <> ?")
+          .bind(providerId, id, input.kind),
+      ]);
+      if (changes(results[0]) === 0) return null;
+      return repo.getTemplate(providerId, id);
+    },
+    async deleteTemplate(providerId, id) {
+      const results = await db.batch([
+        db.prepare("DELETE FROM document_templates WHERE provider_id = ? AND id = ?").bind(providerId, id),
+        db.prepare("DELETE FROM default_templates WHERE provider_id = ? AND template_id = ?").bind(providerId, id),
+      ]);
+      return changes(results[0]) > 0;
+    },
+    async getDefaultTemplateId(providerId, kind) {
+      const r = await db
+        .prepare("SELECT template_id FROM default_templates WHERE provider_id = ? AND kind = ?")
+        .bind(providerId, kind)
+        .first<Row>();
+      return r ? String(r.template_id) : null;
+    },
+    async setDefaultTemplateId(providerId, kind, id, now) {
+      const k = z.enum(TEMPLATE_KINDS).parse(kind);
+      if (id === null) {
+        await db.prepare("DELETE FROM default_templates WHERE provider_id = ? AND kind = ?").bind(providerId, k).run();
+        return;
+      }
+      await db
+        .prepare(
+          `INSERT INTO default_templates (provider_id, kind, template_id, updated_at) VALUES (?, ?, ?, ?)
+           ON CONFLICT(provider_id, kind) DO UPDATE SET template_id = excluded.template_id, updated_at = excluded.updated_at`,
+        )
+        .bind(providerId, k, z.string().min(1).max(128).parse(id), iso(now))
+        .run();
+    },
+
+    // ---------------------------------------------------------------- run history
+    async appendRunEvent(eIn) {
+      const e = RunEvent.parse(eIn);
+      await db
+        .prepare(
+          `INSERT OR IGNORE INTO run_events (id, run_id, run_kind, session_id, provider_id, stage, status, label, detail, meta_json, at, at_ms)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(e.id, e.runId, e.runKind, e.sessionId, e.providerId, e.stage, e.status, e.label, e.detail, JSON.stringify(e.meta), e.at, toMs(e.at))
+        .run();
+    },
+    async listRunEvents(runId, providerId) {
+      const { results } = await db
+        .prepare("SELECT * FROM run_events WHERE run_id = ? AND provider_id = ? ORDER BY at_ms ASC, id ASC")
+        .bind(runId, providerId)
+        .all<Row>();
+      return results.map(rowToRunEvent);
+    },
+    async listRuns(providerId, opts) {
+      const pageSize = Math.min(Math.max(Math.floor(opts.limit) || 1, 1), MAX_PAGE_SIZE);
+      const c = opts.cursor ? decodeRunCursor(opts.cursor) : null;
+      const status = opts.status ? RunSummary.shape.status.parse(opts.status) : null;
+      // Aggregation + status classification happen in SQL so status filtering
+      // and keyset pagination stay consistent. Status rule (first match wins):
+      //   failed    — some event has status 'failed' and no terminal success at/after the latest failure
+      //   succeeded — a terminal success exists: stage 'completed' succeeded, or a delivery_drive /
+      //               delivery_email event succeeded
+      //   waiting   — the latest event's status is 'waiting'
+      //   running   — otherwise
+      const sql = `
+        WITH agg AS (
+          SELECT run_id,
+                 MIN(at_ms) AS started_ms,
+                 MAX(at_ms) AS last_ms,
+                 COUNT(*) AS event_count,
+                 MAX(CASE WHEN status = 'failed' THEN at_ms END) AS fail_ms,
+                 MAX(CASE WHEN status = 'succeeded' AND stage IN ('completed', 'delivery_drive', 'delivery_email') THEN at_ms END) AS success_ms
+          FROM run_events
+          WHERE provider_id = ? ${opts.sessionId ? "AND session_id = ?" : ""}
+          GROUP BY run_id
+        ),
+        latest AS (
+          SELECT agg.*,
+                 (SELECT e.id FROM run_events e WHERE e.run_id = agg.run_id AND e.provider_id = ?
+                  ORDER BY e.at_ms DESC, e.id DESC LIMIT 1) AS last_id
+          FROM agg
+        ),
+        classified AS (
+          SELECT latest.*, le.stage AS current_stage, le.run_kind AS run_kind, le.session_id AS session_id,
+                 CASE
+                   WHEN fail_ms IS NOT NULL AND (success_ms IS NULL OR success_ms < fail_ms) THEN 'failed'
+                   WHEN success_ms IS NOT NULL THEN 'succeeded'
+                   WHEN le.status = 'waiting' THEN 'waiting'
+                   ELSE 'running'
+                 END AS run_status
+          FROM latest JOIN run_events le ON le.id = latest.last_id
+        )
+        SELECT cl.*,
+               (SELECT a.client_ref FROM sessions s JOIN appointments a ON a.id = s.appointment_id
+                WHERE s.id = cl.session_id AND s.provider_id = ?) AS client_ref,
+               (SELECT json_extract(x.meta_json, '$.aiProvider') FROM run_events x
+                WHERE x.run_id = cl.run_id AND x.provider_id = ? AND x.stage = 'extraction'
+                  AND json_extract(x.meta_json, '$.aiProvider') IS NOT NULL
+                ORDER BY x.at_ms DESC, x.id DESC LIMIT 1) AS ai_provider,
+               (SELECT json_extract(x.meta_json, '$.model') FROM run_events x
+                WHERE x.run_id = cl.run_id AND x.provider_id = ? AND x.stage = 'extraction'
+                  AND json_extract(x.meta_json, '$.model') IS NOT NULL
+                ORDER BY x.at_ms DESC, x.id DESC LIMIT 1) AS model
+        FROM classified cl
+        WHERE 1 = 1
+          ${status ? "AND cl.run_status = ?" : ""}
+          ${c ? "AND (cl.started_ms < ? OR (cl.started_ms = ? AND cl.run_id < ?))" : ""}
+        ORDER BY cl.started_ms DESC, cl.run_id DESC
+        LIMIT ?`;
+      const params: unknown[] = [providerId];
+      if (opts.sessionId) params.push(opts.sessionId);
+      params.push(providerId, providerId, providerId, providerId);
+      if (status) params.push(status);
+      if (c) params.push(c.startedMs, c.startedMs, c.runId);
+      params.push(pageSize + 1);
+      const { results } = await db.prepare(sql).bind(...params).all<Row>();
+      const page = results.slice(0, pageSize);
+      const runs = page.map((r) => {
+        const startedMs = Number(r.started_ms);
+        const terminal = r.run_status === "failed" || r.run_status === "succeeded";
+        const endedMs = terminal ? Number(r.last_ms) : null;
+        return RunSummary.parse({
+          runId: r.run_id,
+          runKind: r.run_kind,
+          sessionId: r.session_id,
+          clientRef: r.client_ref ?? null,
+          status: r.run_status,
+          currentStage: r.current_stage,
+          startedAt: new Date(startedMs).toISOString(),
+          endedAt: endedMs === null ? null : new Date(endedMs).toISOString(),
+          durationMs: endedMs === null ? null : Math.max(0, endedMs - startedMs),
+          eventCount: Number(r.event_count),
+          aiProvider: r.ai_provider === null || r.ai_provider === undefined ? null : String(r.ai_provider),
+          model: r.model === null || r.model === undefined ? null : String(r.model),
+        });
+      });
+      const last = page[page.length - 1];
+      const nextCursor = results.length > pageSize && last ? encodeRunCursor(Number(last.started_ms), String(last.run_id)) : null;
+      return { runs, nextCursor };
+    },
   };
   return repo;
 }
-

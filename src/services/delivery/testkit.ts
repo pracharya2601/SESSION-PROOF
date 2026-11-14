@@ -3,7 +3,13 @@ import {
   DEFAULT_EMAIL_SETTINGS,
   DEFAULT_STORAGE_SETTINGS,
   type ApprovalRecord,
+  type ClientInput,
+  type ClientRecord,
+  type ClientSnapshot,
   type ConnectionProvider,
+  type DocumentTemplate,
+  type SessionBundle,
+  type TemplateInput,
   type EmailSettings,
   type FileDelivery,
   type FinalBundle,
@@ -44,6 +50,12 @@ export class DeliveryFakeRepo {
   fileDeliveries = new Map<string, FileDelivery>();
   pending = new Map<string, Record<string, unknown>>();
   enqueueCalls = 0;
+  // v3
+  drafts = new Map<string, SessionBundle>();
+  clients = new Map<string, ClientRecord>();
+  snapshots = new Map<string, ClientSnapshot>();
+  templates = new Map<string, DocumentTemplate & { providerId: string }>();
+  defaults = new Map<string, string | null>();
 
   constructor(opts: { completed?: boolean } = {}) {
     const completed = opts.completed ?? true;
@@ -138,10 +150,89 @@ export class DeliveryFakeRepo {
     }
     return { items, nextCursor: null };
   }
+  // ---- v3: bundles / clients / snapshots / templates
+  async getCurrentBundle(id: string) {
+    return this.drafts.get(id) ?? this.finals.get(id)?.bundle ?? null;
+  }
+  async getClient(providerId: string, ref: string) {
+    return this.clients.get(`${providerId}:${ref}`) ?? null;
+  }
+  async upsertClient(providerId: string, input: ClientInput, now: Date): Promise<ClientRecord> {
+    const prev = this.clients.get(`${providerId}:${input.clientRef}`);
+    const rec: ClientRecord = {
+      ...input,
+      providerId,
+      rateVersion: prev ? prev.rateVersion + (prev.hourlyRateCents !== input.hourlyRateCents ? 1 : 0) : 1,
+      createdAt: prev?.createdAt ?? now.toISOString(),
+      updatedAt: now.toISOString(),
+    };
+    this.clients.set(`${providerId}:${input.clientRef}`, rec);
+    return rec;
+  }
+  async saveClientSnapshot(sessionId: string, rev: number, snap: ClientSnapshot) {
+    if (!this.snapshots.has(`${sessionId}:${rev}`)) this.snapshots.set(`${sessionId}:${rev}`, snap);
+  }
+  async getClientSnapshot(sessionId: string, rev: number) {
+    return this.snapshots.get(`${sessionId}:${rev}`) ?? null;
+  }
+  private strip(t: DocumentTemplate & { providerId: string }): DocumentTemplate {
+    const { providerId: _p, ...rest } = t;
+    return { ...rest };
+  }
+  async listTemplates(providerId: string, kind?: string) {
+    return [...this.templates.values()].filter((t) => t.providerId === providerId && (!kind || t.kind === kind)).map((t) => this.strip(t));
+  }
+  async getTemplate(providerId: string, id: string) {
+    const t = this.templates.get(id);
+    return t && t.providerId === providerId ? this.strip(t) : null;
+  }
+  async createTemplate(providerId: string, id: string, input: TemplateInput, now: Date) {
+    const t = { ...input, id, builtin: false, isDefault: false, updatedAt: now.toISOString(), providerId };
+    this.templates.set(id, t);
+    return this.strip(t);
+  }
+  async updateTemplate(providerId: string, id: string, input: TemplateInput, now: Date) {
+    const t = this.templates.get(id);
+    if (!t || t.providerId !== providerId) return null;
+    const next = { ...t, ...input, updatedAt: now.toISOString() };
+    this.templates.set(id, next);
+    return this.strip(next);
+  }
+  async deleteTemplate(providerId: string, id: string) {
+    const t = this.templates.get(id);
+    if (!t || t.providerId !== providerId) return false;
+    return this.templates.delete(id);
+  }
+  async getDefaultTemplateId(providerId: string, kind: string) {
+    return this.defaults.get(`${providerId}:${kind}`) ?? null;
+  }
+  async setDefaultTemplateId(providerId: string, kind: string, id: string | null) {
+    this.defaults.set(`${providerId}:${kind}`, id);
+  }
+
   async enqueuePendingDelivery(d: { deliveryKey: string } & Record<string, unknown>) {
     this.enqueueCalls++;
     if (!this.pending.has(d.deliveryKey)) this.pending.set(d.deliveryKey, d);
   }
+}
+
+export function clientInput(over: Partial<ClientInput> = {}): ClientInput {
+  return {
+    clientRef: "client-A",
+    displayName: "Alex Example",
+    preferredName: null,
+    hourlyRateCents: 8000,
+    fundingSource: "Medicaid waiver",
+    authorizationNumber: "AUTH-1",
+    fiscalIntermediary: null,
+    authorizedHours: 40,
+    caseManager: null,
+    customFields: [],
+    templates: { session_note: null, invoice: null, approval_record: null },
+    notes: null,
+    active: true,
+    ...over,
+  };
 }
 
 export function makeDeliveryDeps(repo = new DeliveryFakeRepo()): { deps: DeliveryDeps; repo: DeliveryFakeRepo } {

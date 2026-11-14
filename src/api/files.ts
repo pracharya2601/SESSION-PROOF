@@ -1,10 +1,12 @@
 /** v2 Files dashboard + PDF downloads (Agent V7). */
 import { Hono } from "hono";
 import { FILE_LABELS, FileKind, type CompletedSessionFiles, type ListFilesResponse } from "../contracts";
-import { fileNameFor, renderFilePdf, sessionFiles } from "../artifacts/index";
+import { sessionFiles } from "../artifacts/index";
+import { buildDocModel, renderDocModelPdf } from "../documents/index";
 import { apiError } from "../security/index";
 import { ServiceError } from "../services/approval/index";
 import { loadCompletedForActor } from "../services/delivery/index";
+import { loadDocModelInputForSession } from "../services/documents/index";
 import type { ApiDeps, AppBindings } from "./deps";
 import { ok } from "./respond";
 
@@ -60,8 +62,10 @@ export function filesRoutes(deps: ApiDeps): Hono<AppBindings> {
     }
     try {
       const ctx = await loadCompletedForActor(deps, c.get("actor"), id);
-      const bytes = await renderFilePdf(kind.data, { final: ctx.final, approval: ctx.approval, providerIdentity: ctx.providerIdentity });
-      const filename = safeFilename(fileNameFor(kind.data, ctx.final));
+      // v3: resolved template (client → provider default → builtin) + frozen client snapshot.
+      const model = buildDocModel(kind.data, await loadDocModelInputForSession(deps, ctx.session, kind.data));
+      const bytes = await renderDocModelPdf(model);
+      const filename = safeFilename(model.filename);
       const disposition = c.req.query("inline") === "1" ? "inline" : "attachment";
       return new Response(bytes as unknown as BodyInit, {
         status: 200,

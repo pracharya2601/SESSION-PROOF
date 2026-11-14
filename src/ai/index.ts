@@ -22,6 +22,7 @@ import {
   DEFAULT_AI_SETTINGS,
   InferenceError,
   type AiSettings,
+  type PiiType,
   type PrivacyReport,
 } from "../contracts/v2";
 import { buildPrivacyContext, createPrivacyController } from "../privacy";
@@ -192,6 +193,8 @@ export interface CreateExtractorOptions {
   fetch?: typeof fetch;
   resolveSettings?: (providerId: string) => Promise<AiSettings>;
   retryDelayMs?: number;
+  /** v3: extra known PII terms (e.g. client display/preferred names) scrubbed before any AI call. */
+  resolveKnownTerms?: (appointment: ExtractionContext["appointment"]) => Promise<{ value: string; type: PiiType }[]>;
 }
 
 function liveExtractor(env: Env, opts: CreateExtractorOptions): Extractor {
@@ -203,7 +206,14 @@ function liveExtractor(env: Env, opts: CreateExtractorOptions): Extractor {
     async extractFacts(ctx): Promise<ExtractionOutputV2> {
       const settings = (await opts.resolveSettings?.(ctx.appointment.providerId)) ?? envDefaultAiSettings(env);
       // Scrub BEFORE anything leaves the Worker. Only prepared.evidence is used to build the prompt.
-      const prepared = privacy.prepare(ctx.evidence, buildPrivacyContext(ctx.appointment, settings.privacy));
+      let extraTerms: { value: string; type: PiiType }[] = [];
+      try {
+        extraTerms = (await opts.resolveKnownTerms?.(ctx.appointment)) ?? [];
+      } catch {
+        // Fail closed: never call the model without the client's known terms.
+        throw new ExtractionRejectedError("Could not resolve privacy terms", "provider_error");
+      }
+      const prepared = privacy.prepare(ctx.evidence, buildPrivacyContext(ctx.appointment, settings.privacy, extraTerms));
       const user = buildUserContent({ ...ctx, evidence: prepared.evidence });
       const provider = createInferenceProvider(env, settings, { fetch: opts.fetch });
 

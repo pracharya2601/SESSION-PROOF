@@ -175,3 +175,45 @@ describe("export route", () => {
     expect((await send(app, "GET", `/api/sessions/other/export`)).status).toBe(404);
   });
 });
+
+describe("review routes run history (v3)", () => {
+  type Rec = Parameters<import("../contracts").RunRecorder["record"]>[0];
+  function appWithRecorder(recorder: import("../contracts").RunRecorder) {
+    const { deps, repo } = makeDeps();
+    const app = new Hono<AppBindings>();
+    app.use("*", async (c, next) => {
+      c.set("correlationId", "corr-1");
+      c.set("actor", { providerId: PROVIDER, identity: "p@example.test" });
+      await next();
+    });
+    app.route("/", reviewRoutes({ ...deps, recorder }));
+    return { app, repo };
+  }
+
+  it("records review_saved and approved on the current workflow run", async () => {
+    const events: Rec[] = [];
+    const { app, repo } = appWithRecorder({ record: async (e) => void events.push(e) });
+    expect((await review(app, { expectedRevision: 1, edits: { confirmedMinutes: 90 } })).status).toBe(200);
+    expect((await approve(app, { expectedRevision: 2, idempotencyKey: "key-00000001" })).status).toBe(202);
+    const s = (await repo.getSessionForProvider(PROVIDER, SESSION))!;
+    const runId = `wf-${SESSION}-r${s.processingRevision}`;
+    expect(events.map((e) => [e.stage, e.status, e.runId, e.idSuffix])).toEqual([
+      ["review_saved", "succeeded", runId, "r2"],
+      ["approved", "succeeded", runId, "r2"],
+    ]);
+    expect(events[0]!.meta).toMatchObject({ bundleRevision: 2, amountCents: 11250 });
+    expect(events[1]!.meta).toEqual({ bundleRevision: 2 });
+    expect(events.every((e) => e.providerId === PROVIDER && e.sessionId === SESSION)).toBe(true);
+    expect(JSON.stringify(events)).not.toMatch(/p@example\.test|excerpt/);
+  });
+
+  it("no event on failed review; a throwing recorder never fails the request", async () => {
+    const events: Rec[] = [];
+    const { app } = appWithRecorder({ record: async (e) => void events.push(e) });
+    expect((await review(app, { expectedRevision: 7, edits: { confirmedMinutes: 90 } })).status).toBe(409);
+    expect(events).toHaveLength(0);
+
+    const { app: app2 } = appWithRecorder({ record: async () => { throw new Error("down"); } });
+    expect((await review(app2, { expectedRevision: 1, edits: { confirmedMinutes: 90 } })).status).toBe(200);
+  });
+});

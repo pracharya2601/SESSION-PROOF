@@ -200,3 +200,28 @@ describe("live extractor settings + errors", () => {
     expect(isExtractionOutputV2(out)).toBe(false);
   });
 });
+
+describe("live extractor known terms (v3)", () => {
+  it("scrubs a client display name supplied via resolveKnownTerms", async () => {
+    const ev: EvidenceItem = { ...demoEvidence[0]!, id: "ev_007", excerpt: "today quillonmere picked the bus route" };
+    const c: ExtractionContext = { ...ctx, evidence: [...demoEvidence, ev] };
+    const without = fakeFetch([vendorResponse("anthropic", demoFacts)]);
+    await createExtractor(env(), { fetch: without.fn, retryDelayMs: 0, resolveSettings: async () => settingsFor("anthropic") }).extractFacts(c);
+    expect(without.calls[0]!.body.toLowerCase()).toContain("quillonmere");
+
+    const seen: string[] = [];
+    const withTerms = fakeFetch([vendorResponse("anthropic", demoFacts)]);
+    await createExtractor(env(), {
+      fetch: withTerms.fn,
+      retryDelayMs: 0,
+      resolveSettings: async () => settingsFor("anthropic"),
+      resolveKnownTerms: async (appt) => {
+        seen.push(appt.clientRef);
+        return [{ value: "Quillonmere", type: "NAME" }];
+      },
+    }).extractFacts(c);
+    expect(seen).toEqual([demoAppointment.clientRef]);
+    expect(withTerms.calls[0]!.body.toLowerCase()).not.toContain("quillonmere");
+    expect(withTerms.calls[0]!.body).toMatch(/\[NAME_\d+\]/);
+  });
+});

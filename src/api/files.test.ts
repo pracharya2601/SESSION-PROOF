@@ -1,7 +1,8 @@
 import { Hono } from "hono";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ApiDeps, AppBindings } from "./deps";
-import { DeliveryFakeRepo, makeDeliveryDeps, OTHER_PROVIDER, PROVIDER, SESSION } from "../services/delivery/testkit";
+import { clientInput, DeliveryFakeRepo, makeDeliveryDeps, NOW, OTHER_PROVIDER, PROVIDER, SESSION } from "../services/delivery/testkit";
+import { BUILTIN_TEMPLATES } from "../documents/index";
 
 const m = vi.hoisted(() => {
   class ConnectionError extends Error {
@@ -18,7 +19,12 @@ const m = vi.hoisted(() => {
     ConnectionError,
     CloudApiError,
     getValidAccessToken: vi.fn(async () => "tok"),
-    renderFilePdf: vi.fn(async (kind: string) => new TextEncoder().encode(`%PDF-${kind}`)),
+    buildDocModel: vi.fn((kind: string, input: { bundle: { bundleRevision: number }; template: { id: string } }) => ({
+      kind,
+      templateId: input.template.id,
+      filename: `client-A_${kind}_r${input.bundle.bundleRevision}.pdf`,
+    })),
+    renderDocModelPdf: vi.fn(async (model: { kind: string }) => new TextEncoder().encode(`%PDF-${model.kind}`)),
     ensureFolder: vi.fn(async (_path: string) => ({ folderId: "fold-1", webUrl: "https://drive.example/fold-1" })),
     uploadFile: vi.fn(async (_f: string, name: string, _b: Uint8Array, _ct: string) => ({ fileId: `f-${name}`, webUrl: null })),
     createDraft: vi.fn(async (_d: unknown) => ({ draftId: "draft-1", webUrl: "https://mail.example/draft-1" })),
@@ -28,8 +34,6 @@ const m = vi.hoisted(() => {
 
 vi.mock("../connections/index", () => ({ ConnectionError: m.ConnectionError, getValidAccessToken: m.getValidAccessToken }));
 vi.mock("../artifacts/index", () => ({
-  renderFilePdf: m.renderFilePdf,
-  fileNameFor: (kind: string, final: { bundleRevision: number }) => `client-A_${kind}_r${final.bundleRevision}.pdf`,
   sessionFiles: (sessionId: string, final: { bundleRevision: number }) =>
     ["session_note", "invoice", "approval_record"].map((kind) => ({
       kind,
@@ -38,6 +42,11 @@ vi.mock("../artifacts/index", () => ({
       contentType: "application/pdf",
       downloadUrl: `/api/sessions/${sessionId}/files/${kind}`,
     })),
+}));
+vi.mock("../documents/index", async (orig) => ({
+  ...((await orig()) as object),
+  buildDocModel: m.buildDocModel,
+  renderDocModelPdf: m.renderDocModelPdf,
 }));
 vi.mock("../integrations/cloud/index", () => ({
   CloudApiError: m.CloudApiError,
@@ -99,7 +108,7 @@ describe("files routes", () => {
     expect(r.headers.get("cache-control")).toBe("no-store");
     expect(r.headers.get("x-content-type-options")).toBe("nosniff");
     expect(new TextDecoder().decode(await r.arrayBuffer())).toBe("%PDF-invoice");
-    expect(m.renderFilePdf).toHaveBeenCalledWith("invoice", expect.objectContaining({ providerIdentity: "p@example.test" }));
+    expect(m.buildDocModel).toHaveBeenCalledWith("invoice", expect.objectContaining({ providerIdentity: "p@example.test" }));
     const inl = await app.request(`/api/sessions/${SESSION}/files/session_note?inline=1`);
     expect(inl.headers.get("content-disposition")).toMatch(/^inline; filename=/);
   });
@@ -114,5 +123,26 @@ describe("files routes", () => {
     const nf = await appFor(new DeliveryFakeRepo({ completed: false })).app.request(`/api/sessions/${SESSION}/files/invoice`);
     expect(nf.status).toBe(409);
     expect(await errCode(nf)).toBe("NOT_FINALIZED");
+  });
+
+  it("PDF uses the client's invoice template + frozen snapshot; filename from the DocModel", async () => {
+    const repo = new DeliveryFakeRepo();
+    const b = BUILTIN_TEMPLATES.invoice;
+    const t = await repo.createTemplate(PROVIDER, "tpl_inv", { kind: "invoice", name: "Inv", theme: b.theme, sections: b.sections, text: b.text }, NOW);
+    const foreign = await repo.createTemplate(OTHER_PROVIDER, "tpl_foreign", { kind: "invoice", name: "F", theme: b.theme, sections: b.sections, text: b.text }, NOW);
+    const client = await repo.upsertClient(PROVIDER, clientInput({ templates: { session_note: foreign.id, invoice: t.id, approval_record: null } }), NOW);
+    const { notes: _n, templates: _t, ...rest } = client;
+    await repo.saveClientSnapshot(SESSION, 2, { ...rest, effectiveHourlyRateCents: 8000, capturedAt: NOW.toISOString() });
+    const { app } = appFor(repo);
+    const r = await app.request(`/api/sessions/${SESSION}/files/invoice`);
+    expect(r.status).toBe(200);
+    expect(m.buildDocModel).toHaveBeenLastCalledWith(
+      "invoice",
+      expect.objectContaining({ template: expect.objectContaining({ id: "tpl_inv" }), client: expect.objectContaining({ effectiveHourlyRateCents: 8000 }) }),
+    );
+    expect(m.renderDocModelPdf).toHaveBeenLastCalledWith(expect.objectContaining({ templateId: "tpl_inv", filename: "client-A_invoice_r2.pdf" }));
+    // foreign template id on the client → builtin
+    await app.request(`/api/sessions/${SESSION}/files/session_note`);
+    expect(m.buildDocModel).toHaveBeenLastCalledWith("session_note", expect.objectContaining({ template: expect.objectContaining({ id: "builtin:session_note" }) }));
   });
 });

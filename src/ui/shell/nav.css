@@ -1,0 +1,33 @@
+/* v3 nav (W6): grouped sidebar + mobile "More" sheet */
+.side-nav { display: flex; flex-direction: column; gap: var(--sp-3); overflow-y: auto; overflow-x: hidden; min-height: 0; scrollbar-width: none; }
+.side-nav::-webkit-scrollbar { display: none; }
+.side-group { display: flex; flex-direction: column; gap: 2px; }
+.side-group-label {
+  position: relative; height: 22px; padding: 0 14px; display: flex; align-items: center;
+  font-size: 10.5px; font-weight: 650; letter-spacing: 0.08em; text-transform: uppercase; color: var(--subtle); white-space: nowrap;
+}
+.side-group-label span { transition: opacity var(--dur); }
+.side-group-label::after {
+  content: ""; position: absolute; left: 18px; right: 18px; top: 50%; height: 1px; background: var(--border);
+  opacity: 0; transition: opacity var(--dur);
+}
+.sidebar[data-collapsed] .side-group-label span { opacity: 0; }
+.sidebar[data-collapsed] .side-group-label::after { opacity: 1; }
+.side-group:first-child .side-group-label::after { display: none; }
+
+@media (max-width: 768px) {
+  .bottom-nav ul.bn-list { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .bn-more { width: 100%; border: 0; background: transparent; cursor: pointer; font: inherit; font-size: 11px; font-weight: 600; }
+  .bn-link span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 2px; }
+}
+
+.bn-sheet { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.bn-sheet-link {
+  display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 0 14px;
+  border-radius: var(--r-md); border: 1px solid var(--border); background: var(--surface-2);
+  color: var(--text); text-decoration: none; font-weight: 600; font-size: var(--text-sm);
+  transition: background var(--dur-fast), border-color var(--dur-fast);
+}
+.bn-sheet-link:hover { background: var(--surface-hover); border-color: var(--border-strong); }
+.bn-sheet-link.on { border-color: color-mix(in srgb, var(--accent) 40%, transparent); background: color-mix(in srgb, var(--accent) 12%, var(--surface-2)); }
+.bn-sheet-ico { display: grid; place-items: center; width: 32px; height: 32px; border-radius: var(--r-sm); background: var(--surface-active); color: var(--accent-strong); }

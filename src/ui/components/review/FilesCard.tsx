@@ -4,6 +4,7 @@ import { Download, Eye, FileCheck2, FileSignature, FileText, FolderUp, Mail, Rec
 import type { FileKind } from "../../../contracts";
 import { api, ApiClientError } from "../../api";
 import { Button, Dialog, Field, Input, useToast } from "../../design";
+import { SessionDocPreview } from "../doc/SessionDocPreview";
 import { Section } from "./Section";
 import { rvSpring, useMotionOK } from "./motion";
 
@@ -253,13 +254,7 @@ export function FilesCard(props: { sessionId: string; revision: number | null })
           )
         }
       >
-        {preview && (
-          <iframe
-            className="rv-preview-frame"
-            title={`${preview.label} PDF preview`}
-            src={api.fileUrl(props.sessionId, preview.kind, { inline: true })}
-          />
-        )}
+        {preview && <SessionDocPreview key={preview.kind} sessionId={props.sessionId} kind={preview.kind} />}
       </Dialog>
     </Section>
   );

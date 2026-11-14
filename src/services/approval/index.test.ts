@@ -35,6 +35,26 @@ describe("saveReview", () => {
     expect(b.billing.confirmedMinutes).toBe(90);
   });
 
+  it("records participant direction/choices attestations and supersedes them per field", async () => {
+    const { deps } = makeDeps();
+    const b2 = await saveReview(deps, actor, SESSION, {
+      expectedRevision: 1,
+      edits: { participantDirected: true, participantChoices: "Chose the grocery store and route", confirmedMinutes: 60 },
+    });
+    const byField = Object.fromEntries(b2.attestations.map((a) => [a.field, a]));
+    expect(byField.participant_direction!.text).toBe("yes");
+    expect(byField.participant_direction!.id).toBe(`att-${SESSION}-r2-participant_direction`);
+    expect(byField.participant_choices!.text).toBe("Chose the grocery store and route");
+    expect(byField.participant_choices!.actorProviderId).toBe(PROVIDER);
+    const b3 = await saveReview(deps, actor, SESSION, { expectedRevision: 2, edits: { participantDirected: false } });
+    expect(b3.attestations.map((a) => a.id).sort()).toEqual([
+      `att-${SESSION}-r2-duration`,
+      `att-${SESSION}-r2-participant_choices`,
+      `att-${SESSION}-r3-participant_direction`,
+    ]);
+    expect(b3.attestations.find((a) => a.field === "participant_direction")!.text).toBe("no");
+  });
+
   it("rejects stale revision, foreign session, and post-approval edits", async () => {
     const { deps, repo } = makeDeps();
     expect(await code(saveReview(deps, actor, SESSION, { expectedRevision: 5, edits: { confirmedMinutes: 60 } }))).toBe("409:STALE_REVISION");

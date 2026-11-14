@@ -12,6 +12,10 @@ import { settingsV2Routes } from "./settings-v2";
 import { filesRoutes } from "./files";
 import { deliveryRoutes } from "./deliveries";
 import { connectionsRoutes } from "../connections";
+import { clientsRoutes } from "./clients";
+import { templatesRoutes } from "./templates";
+import { documentsRoutes } from "./documents";
+import { runsRoutes } from "./runs";
 
 export { ok } from "./respond";
 export { healthRoutes } from "./health";
@@ -47,6 +51,11 @@ export function createApi(deps: ApiDeps): Hono<AppBindings> {
   app.route("/", filesRoutes(deps));
   app.route("/", deliveryRoutes(deps));
   app.route("/", connectionsRoutes(deps));
+  // v3: clients + per-client rate, document templates, HTML/PDF document model.
+  app.route("/", clientsRoutes(deps));
+  app.route("/", templatesRoutes(deps));
+  app.route("/", documentsRoutes(deps));
+  app.route("/", runsRoutes(deps));
 
   app.notFound((c) => {
     const cid = c.get("correlationId") ?? "";

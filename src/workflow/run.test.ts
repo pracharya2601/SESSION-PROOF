@@ -20,6 +20,7 @@ import type {
   SessionStatus,
   WorkflowParams,
 } from "../contracts";
+import type { ClientRecord, ClientSnapshot, RunRecorder } from "../contracts";
 import type { ConditionalResult, Repository } from "../db/repository";
 import {
   demoAppointment,
@@ -175,6 +176,16 @@ class FakeRepo {
   }
   async getFinalBundle() {
     return this.final;
+  }
+  async getBundle(_sessionId: string, rev: number) {
+    return this.drafts.get(rev) ?? null;
+  }
+  snapshots = new Map<number, ClientSnapshot>();
+  async getClientSnapshot(_sessionId: string, rev: number) {
+    return this.snapshots.get(rev) ?? null;
+  }
+  async saveClientSnapshot(_sessionId: string, rev: number, snap: ClientSnapshot) {
+    if (!this.snapshots.has(rev)) this.snapshots.set(rev, snap);
   }
 }
 
@@ -450,5 +461,204 @@ describe("runSessionWorkflow", () => {
     expect(res.outcome).toBe("completed");
     expect(repo.final?.bundleRevision).toBe(4);
     expect(step.names).toContain("finalize r4");
+  });
+});
+
+
+// ------------------------------------------------------------------ v3 run history + client pricing
+type Rec = Parameters<RunRecorder["record"]>[0];
+function fakeRecorder() {
+  const events: Rec[] = [];
+  const ids = new Set<string>();
+  return {
+    events,
+    async record(e: Rec) {
+      const id = `${e.runId}:${e.stage}:${e.status}${e.idSuffix ? ":" + e.idSuffix : ""}`;
+      if (ids.has(id)) return;
+      ids.add(id);
+      events.push(e);
+    },
+  };
+}
+const stages = (events: Rec[]) => events.map((e) => `${e.stage}:${e.status}`);
+
+const PLANTED_NAME = "Zebediah Quackenbush";
+const client: ClientRecord = {
+  clientRef: demoAppointment.clientRef,
+  displayName: PLANTED_NAME,
+  preferredName: "Zeb",
+  hourlyRateCents: 9100,
+  fundingSource: "Waiver",
+  authorizationNumber: "AUTH-777",
+  fiscalIntermediary: null,
+  authorizedHours: 40,
+  caseManager: "Case Manager Person",
+  customFields: [],
+  templates: { session_note: null, invoice: null, approval_record: null },
+  notes: "secret notes",
+  active: true,
+  providerId: demoAppointment.providerId,
+  rateVersion: 3,
+  createdAt: FIXTURE_CLOCK_NOW,
+  updatedAt: FIXTURE_CLOCK_NOW,
+};
+
+function liveExtractor(): Extractor {
+  return {
+    mode: "live",
+    async extractFacts() {
+      return {
+        facts: demoFacts,
+        mode: "live",
+        model: "gpt-4.1",
+        promptVersion: "p2",
+        aiProvider: "openai",
+        privacy: { scrubbed: true, findings: { NAME: 2, EMAIL: 1 } },
+      } as Awaited<ReturnType<Extractor["extractFacts"]>>;
+    },
+  };
+}
+
+describe("runSessionWorkflow v3 history", () => {
+  it("normal path records the ordered stage list, freezes the client rate and snapshots the client", async () => {
+    const { repo, deps } = setup();
+    const rec = fakeRecorder();
+    deps.recorder = rec;
+    deps.extractor = liveExtractor();
+    deps.resolveClient = async (a) => (a.clientRef === client.clientRef ? client : null);
+    const step = new FakeStep([{ payload: eventFor(1), before: () => repo.approve() }]);
+    const res = await runSessionWorkflow(deps, params(), step);
+    expect(res.outcome).toBe("completed");
+    // Step names unchanged by instrumentation.
+    expect(step.names).toEqual([
+      "load session r1",
+      "mark processing",
+      "prepare draft r1",
+      "check approval #0",
+      "await provider approval #0",
+      "check approval #1",
+      "finalize r1",
+    ]);
+    expect(stages(rec.events)).toEqual([
+      "workflow_started:started",
+      "load:succeeded",
+      "evidence:started",
+      "evidence:succeeded",
+      "match:succeeded",
+      "extraction:started",
+      "privacy:succeeded",
+      "extraction:succeeded",
+      "assemble:succeeded",
+      "draft_saved:succeeded",
+      "approval_wait:waiting",
+      "approved:succeeded",
+      "client_snapshot:succeeded",
+      "finalize:succeeded",
+      "files:succeeded",
+      "completed:succeeded",
+    ]);
+    const runId = "wf-sess_test_001-r1";
+    expect(rec.events.every((e) => e.runId === runId && e.runKind === "processing" && e.providerId === demoAppointment.providerId)).toBe(true);
+    const by = (stage: string, status = "succeeded") => rec.events.find((e) => e.stage === stage && e.status === status)!;
+    expect(by("extraction").meta).toMatchObject({ aiProvider: "openai", model: "gpt-4.1", mode: "live", promptVersion: "p2" });
+    expect(by("privacy").meta).toMatchObject({ scrubbed: true, findings: 3 });
+    expect(by("evidence").meta).toMatchObject({ items: demoEvidence.length, completeness: "complete" });
+    expect(by("match").meta).toMatchObject({ outcome: "matched", competing: 0 });
+    expect(by("assemble").meta).toMatchObject({ bundleRevision: 1, rateVersion: `client:${client.clientRef}:v3`, canApprove: false, blocking: 0 });
+    expect(by("workflow_started", "started").meta).toMatchObject({ clientRef: client.clientRef });
+
+    // Client rate frozen into the draft bundle.
+    const draft = repo.drafts.get(1)!;
+    expect(draft.config.rate).toMatchObject({ hourlyRateCents: 9100, rateVersion: `client:${client.clientRef}:v3` });
+    // Snapshot saved with the bundle's frozen rate.
+    expect(repo.snapshots.get(1)).toMatchObject({ clientRef: client.clientRef, effectiveHourlyRateCents: 9100 });
+
+    // No PII / excerpts / tokens anywhere in recorded events.
+    const json = JSON.stringify(rec.events);
+    for (const planted of [PLANTED_NAME, "Zeb", "AUTH-777", "Case Manager Person", "secret notes", ...demoEvidence.map((e) => e.excerpt)]) {
+      expect(json).not.toContain(planted);
+    }
+  });
+
+  it("replay does not duplicate events; snapshot is idempotent", async () => {
+    const { repo, deps } = setup();
+    const rec = fakeRecorder();
+    const raw: Rec[] = [];
+    deps.recorder = { record: async (e) => { raw.push(e); await rec.record(e); } };
+    deps.resolveClient = async () => client;
+    const step = new FakeStep([{ payload: eventFor(1), before: () => repo.approve() }]);
+    await runSessionWorkflow(deps, params(), step);
+    const n = raw.length;
+    await runSessionWorkflow(deps, params(), step);
+    // load step is memoized too, so a replay emits nothing new.
+    expect(raw.length).toBe(n);
+    expect(repo.snapshots.size).toBe(1);
+  });
+
+  it("no client -> agency rate, snapshot skipped", async () => {
+    const { repo, deps } = setup();
+    const rec = fakeRecorder();
+    deps.recorder = rec;
+    deps.resolveClient = async () => null;
+    const step = new FakeStep([{ payload: eventFor(1), before: () => repo.approve() }]);
+    await runSessionWorkflow(deps, params(), step);
+    expect(repo.drafts.get(1)!.config.rate).toEqual(demoConfig.rate);
+    expect(stages(rec.events)).toContain("client_snapshot:skipped");
+    expect(repo.snapshots.size).toBe(0);
+  });
+
+  it("failure paths emit stage failure + failed with a safe reason", async () => {
+    const cases: { opts: Parameters<typeof setup>[0]; stage: string; detail: string; status: string; reason: string; prep?: (r: FakeRepo) => void }[] = [
+      {
+        opts: { evidence: new EvidenceUnavailableError("401 token secret-xyz", "auth", false) },
+        stage: "evidence",
+        detail: "auth",
+        status: "FAILED",
+        reason: "Evidence source unavailable (auth).",
+      },
+      { opts: { evidence: { ...okEvidence, items: [] } }, stage: "evidence", detail: "", status: "NO_EVIDENCE", reason: "No evidence found for the appointment window." },
+      {
+        opts: {},
+        stage: "match",
+        detail: "ambiguous",
+        status: "AMBIGUOUS_MATCH",
+        reason: "Evidence could match more than one appointment.",
+        prep: (r) => r.appointments.push({ ...demoAppointment, id: "appointment_other", occurrenceId: "occ_other" }),
+      },
+      {
+        opts: { extractFail: new ExtractionRejectedError("model said: Zebediah Quackenbush", "schema") },
+        stage: "extraction",
+        detail: "schema",
+        status: "INCOMPLETE",
+        reason: "Extraction rejected (schema).",
+      },
+    ];
+    for (const c of cases) {
+      const { repo, deps } = setup(c.opts);
+      c.prep?.(repo);
+      const rec = fakeRecorder();
+      deps.recorder = rec;
+      await runSessionWorkflow(deps, params(), new FakeStep());
+      const last = rec.events[rec.events.length - 1]!;
+      expect(last).toMatchObject({ stage: "failed", status: "failed", detail: c.reason, meta: { status: c.status } });
+      if (c.detail) expect(rec.events.find((e) => e.stage === c.stage && e.status === "failed")?.detail).toBe(c.detail);
+      const json = JSON.stringify(rec.events);
+      expect(json).not.toContain("secret-xyz");
+      expect(json).not.toContain(PLANTED_NAME);
+      expect(stages(rec.events)).not.toContain("draft_saved:succeeded");
+    }
+  });
+
+  it("timeout records an info approval_wait; a throwing recorder never fails the run", async () => {
+    const { deps } = setup();
+    const rec = fakeRecorder();
+    deps.recorder = rec;
+    await runSessionWorkflow(deps, params(), new FakeStep(["timeout"]));
+    expect(rec.events.find((e) => e.stage === "approval_wait" && e.status === "info")?.detail).toBe("approval_timeout");
+
+    const s2 = setup();
+    s2.deps.recorder = { record: async () => { throw new Error("boom"); } };
+    const step = new FakeStep([{ payload: eventFor(1), before: () => s2.repo.approve() }]);
+    expect((await runSessionWorkflow(s2.deps, params(), step)).outcome).toBe("completed");
   });
 });

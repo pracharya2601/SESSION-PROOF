@@ -14,13 +14,15 @@ import {
   type SessionRecord,
 } from "../../contracts";
 import type { ApiDeps, Actor } from "../../api/deps";
-import { fileNameFor, renderFilePdf, type ArtifactInput } from "../../artifacts/index";
+import { buildDocModel, renderDocModelPdf } from "../../documents/index";
 import { ConnectionError, getValidAccessToken } from "../../connections/index";
 import { CloudApiError, mailAdapterFor, storageAdapterFor } from "../../integrations/cloud/index";
 import { log } from "../../security/index";
 import { ServiceError } from "../approval/index";
+import { safeRecord } from "../../history/index";
+import { loadDocModelInputForSession } from "../documents/index";
 
-export type DeliveryDeps = Pick<ApiDeps, "repo" | "env" | "clock" | "fetch">;
+export type DeliveryDeps = Pick<ApiDeps, "repo" | "env" | "clock" | "fetch" | "recorder">;
 
 const PDF = "application/pdf";
 
@@ -111,8 +113,10 @@ export function loadCompletedForActor(deps: DeliveryDeps, actor: Actor, sessionI
   return loadCompletedForProvider(deps, actor.providerId, sessionId);
 }
 
-function artifactInput(ctx: CompletedContext): ArtifactInput {
-  return { final: ctx.final, approval: ctx.approval, providerIdentity: ctx.providerIdentity };
+/** v3: one DocModel per kind (resolved template + client snapshot) → PDF. */
+async function renderPdfFor(deps: DeliveryDeps, ctx: CompletedContext, kind: FileKind): Promise<{ name: string; bytes: Uint8Array }> {
+  const model = buildDocModel(kind, await loadDocModelInputForSession(deps, ctx.session, kind));
+  return { name: model.filename, bytes: await renderDocModelPdf(model) };
 }
 
 // ------------------------------------------------------------------ helpers
@@ -153,13 +157,11 @@ async function performDriveUpload(
   const now = () => deps.clock.now();
   const providerId = ctx.session.providerId;
   try {
+    await recordDelivery(deps, delivery, "started", providerId);
     const token = knownToken ?? (await accessToken(deps, providerId, delivery.provider));
     const settings = await deps.repo.getStorageSettings(providerId);
-    const input = artifactInput(ctx);
     const rendered: { name: string; bytes: Uint8Array }[] = [];
-    for (const kind of delivery.files) {
-      rendered.push({ name: fileNameFor(kind, ctx.final), bytes: await renderFilePdf(kind, input) });
-    }
+    for (const kind of delivery.files) rendered.push(await renderPdfFor(deps, ctx, kind));
     const adapter = storageAdapterFor(delivery.provider, token, deps.fetch);
     const path = renderFolderPath(settings.folderPath, templateVars(ctx.final, ctx.providerIdentity));
     const folder = await adapter.ensureFolder(path);
@@ -167,6 +169,7 @@ async function performDriveUpload(
     const patch = { status: "done" as const, externalId: folder.folderId, webUrl: folder.webUrl, error: null };
     await deps.repo.updateFileDelivery(delivery.id, patch, now());
     log("info", "delivery.drive.done", { deliveryId: delivery.id, sessionId: delivery.sessionId, provider: delivery.provider });
+    await recordDelivery(deps, delivery, "succeeded", providerId);
     return { ...delivery, ...patch, updatedAt: now().toISOString() };
   } catch (err) {
     throw await failDelivery(deps, delivery, err);
@@ -192,6 +195,7 @@ async function failDelivery(deps: DeliveryDeps, delivery: FileDelivery, err: unk
     /* keep original error */
   }
   log("warn", "delivery.failed", { deliveryId: delivery.id, sessionId: delivery.sessionId, target: delivery.target, error: message });
+  await recordDelivery(deps, delivery, "failed", null, err);
   return mapped;
 }
 
@@ -265,16 +269,18 @@ export async function createEmailDraft(
   };
   await deps.repo.createFileDelivery(delivery);
   try {
-    const input = artifactInput(ctx);
+    await recordDelivery(deps, delivery, "started", actor.providerId);
     const attachments: { filename: string; contentType: string; bytes: Uint8Array }[] = [];
     for (const kind of files) {
-      attachments.push({ filename: fileNameFor(kind, ctx.final), contentType: PDF, bytes: await renderFilePdf(kind, input) });
+      const pdf = await renderPdfFor(deps, ctx, kind);
+      attachments.push({ filename: pdf.name, contentType: PDF, bytes: pdf.bytes });
     }
     // Draft only — the user presses Send in their own mail app.
     const draft = await mailAdapterFor(provider, token, deps.fetch).createDraft({ to, cc, subject, bodyText, attachments });
     const patch = { status: "done" as const, externalId: draft.draftId, webUrl: draft.webUrl, error: null };
     await deps.repo.updateFileDelivery(delivery.id, patch, deps.clock.now());
     log("info", "delivery.email_draft.done", { deliveryId: delivery.id, sessionId, provider });
+    await recordDelivery(deps, delivery, "succeeded", actor.providerId);
     return { ...delivery, ...patch, updatedAt: deps.clock.now().toISOString() };
   } catch (err) {
     throw await failDelivery(deps, delivery, err);
@@ -348,5 +354,43 @@ export async function processFileDelivery(deps: DeliveryDeps, deliveryId: string
   } catch (err) {
     if (err instanceof ServiceError && !err.retryable) return { ...delivery, status: "failed", error: err.message };
     throw err;
+  }
+}
+
+// ------------------------------------------------------------------ run history (v3)
+/** Safe error code for history: class/code only, never messages, tokens or recipients. */
+function deliveryErrorCode(err: unknown): string {
+  if (err instanceof CloudApiError) return `provider_${err.status}_${String(err.code).replace(/[^A-Za-z0-9_.-]/g, "").slice(0, 40)}`;
+  if (err instanceof ServiceError) return err.code;
+  return "unexpected";
+}
+
+/** Records a delivery transition (runId `delivery:<id>`). Never throws. */
+async function recordDelivery(
+  deps: DeliveryDeps,
+  delivery: FileDelivery,
+  status: "started" | "succeeded" | "failed",
+  providerId: string | null,
+  err?: unknown,
+): Promise<void> {
+  if (!deps.recorder) return;
+  try {
+    const owner = providerId ?? (await deps.repo.getSession(delivery.sessionId))?.providerId;
+    if (!owner) return;
+    const drive = delivery.target === "drive";
+    const what = drive ? "Drive upload" : "Email draft";
+    await safeRecord(deps.recorder, {
+      runId: `delivery:${delivery.id}`,
+      runKind: "delivery",
+      sessionId: delivery.sessionId,
+      providerId: owner,
+      stage: drive ? "delivery_drive" : "delivery_email",
+      status,
+      label: status === "started" ? `${what} started` : status === "succeeded" ? `${what} done` : `${what} failed`,
+      detail: status === "failed" ? deliveryErrorCode(err) : null,
+      meta: { provider: delivery.provider, files: delivery.files.length, bundleRevision: delivery.bundleRevision },
+    });
+  } catch {
+    /* history never fails a delivery */
   }
 }

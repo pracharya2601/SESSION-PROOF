@@ -95,10 +95,17 @@ function fakeRepo() {
   const providers = new Map<string, string>();
   const configs = new Map<string, ServiceConfig>();
   const appts = new Map<string, Appointment>();
+  const clients = new Map<string, unknown>();
   const repo = {
     async upsertProvider(id: string, identity: string) { providers.set(id, identity); },
     async upsertServiceConfig(code: string, c: ServiceConfig) { configs.set(code, c); },
     async upsertAppointment(a: Appointment) { appts.set(a.id, a); },
+    // v3: seed also creates the synthetic client record once.
+    async getClient(pid: string, ref: string) { return clients.get(`${pid}:${ref}`) ?? null; },
+    async upsertClient(pid: string, input: { clientRef: string }) {
+      clients.set(`${pid}:${input.clientRef}`, input);
+      return input;
+    },
   } as unknown as Repository;
   return { repo, providers, configs, appts };
 }

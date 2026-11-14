@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Actor } from "../../api/deps";
 import { ServiceError } from "../approval/index";
-import { DeliveryFakeRepo, makeDeliveryDeps, OTHER_PROVIDER, PROVIDER, SESSION } from "./testkit";
+import { BUILTIN_TEMPLATES } from "../../documents/index";
+import { clientInput, DeliveryFakeRepo, makeDeliveryDeps, NOW, OTHER_PROVIDER, PROVIDER, SESSION } from "./testkit";
 
 const m = vi.hoisted(() => {
   class ConnectionError extends Error {
@@ -18,7 +19,12 @@ const m = vi.hoisted(() => {
     ConnectionError,
     CloudApiError,
     getValidAccessToken: vi.fn(async () => "tok"),
-    renderFilePdf: vi.fn(async (kind: string) => new TextEncoder().encode(`%PDF-${kind}`)),
+    buildDocModel: vi.fn((kind: string, input: { bundle: { bundleRevision: number }; template: { id: string } }) => ({
+      kind,
+      templateId: input.template.id,
+      filename: `client-A_${kind}_r${input.bundle.bundleRevision}.pdf`,
+    })),
+    renderDocModelPdf: vi.fn(async (model: { kind: string }) => new TextEncoder().encode(`%PDF-${model.kind}`)),
     ensureFolder: vi.fn(async (_path: string) => ({ folderId: "fold-1", webUrl: "https://drive.example/fold-1" })),
     uploadFile: vi.fn(async (_f: string, name: string, _b: Uint8Array, _ct: string) => ({ fileId: `f-${name}`, webUrl: null })),
     createDraft: vi.fn(async (_d: unknown) => ({ draftId: "draft-1", webUrl: "https://mail.example/draft-1" })),
@@ -28,9 +34,12 @@ const m = vi.hoisted(() => {
 
 vi.mock("../../connections/index", () => ({ ConnectionError: m.ConnectionError, getValidAccessToken: m.getValidAccessToken }));
 vi.mock("../../artifacts/index", () => ({
-  renderFilePdf: m.renderFilePdf,
-  fileNameFor: (kind: string, final: { bundleRevision: number }) => `client-A_${kind}_r${final.bundleRevision}.pdf`,
   sessionFiles: () => [],
+}));
+vi.mock("../../documents/index", async (orig) => ({
+  ...((await orig()) as object),
+  buildDocModel: m.buildDocModel,
+  renderDocModelPdf: m.renderDocModelPdf,
 }));
 vi.mock("../../integrations/cloud/index", () => ({
   CloudApiError: m.CloudApiError,
@@ -110,6 +119,27 @@ describe("uploadToDrive", () => {
     const [stored] = [...repo.fileDeliveries.values()];
     expect(stored?.status).toBe("failed");
     expect(stored?.error).not.toContain("token=abc");
+  });
+});
+
+describe("v3 templates in deliveries", () => {
+  it("drive upload renders each kind with the client's template (fallback builtin)", async () => {
+    const { deps, repo } = makeDeliveryDeps();
+    const b = BUILTIN_TEMPLATES.invoice;
+    await repo.createTemplate(PROVIDER, "tpl_inv", { kind: "invoice", name: "Inv", theme: b.theme, sections: b.sections, text: b.text }, NOW);
+    await repo.upsertClient(PROVIDER, clientInput({ templates: { session_note: null, invoice: "tpl_inv", approval_record: null } }), NOW);
+    await uploadToDrive(deps, actor, SESSION, { provider: "google" });
+    const used = m.buildDocModel.mock.calls.map(([kind, input]) => [kind, input.template.id]);
+    expect(used).toEqual([
+      ["session_note", "builtin:session_note"],
+      ["invoice", "tpl_inv"],
+      ["approval_record", "builtin:approval_record"],
+    ]);
+    expect(m.uploadFile.mock.calls.map((c) => c[1])).toEqual([
+      "client-A_session_note_r2.pdf",
+      "client-A_invoice_r2.pdf",
+      "client-A_approval_record_r2.pdf",
+    ]);
   });
 });
 

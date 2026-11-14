@@ -23,13 +23,16 @@ import {
 import { setWorkflowDepsFactory } from "./workflow";
 import { onSessionCompleted, processFileDelivery, type DeliveryDeps } from "./services/delivery";
 import { defaultAiSettings } from "./api/settings-v2";
+import { createRunRecorder } from "./history";
+import { clientKnownTerms } from "./clients";
 
 export { SessionWorkflow } from "./workflow";
 
 const clock: Clock = systemClock;
 
 function deliveryDeps(env: Env): DeliveryDeps {
-  return { repo: createRepository(env.DB), env, clock };
+  const repo = createRepository(env.DB);
+  return { repo, env, clock, recorder: createRunRecorder(repo, clock) };
 }
 
 function jobDeps(env: Env): JobDeps {
@@ -39,6 +42,7 @@ function jobDeps(env: Env): JobDeps {
     workflow: env.SESSION_WORKFLOW,
     queue: env.SESSION_QUEUE,
     clock,
+    recorder: delivery.recorder,
     processFileDelivery: (deliveryId) => processFileDelivery(delivery, deliveryId),
   };
 }
@@ -53,7 +57,12 @@ setWorkflowDepsFactory((env: Env) => {
   // Each provider's own AI settings (vendor, model, privacy toggles); PII scrubbing runs before any call.
   extractor: createExtractor(env, {
     resolveSettings: async (providerId: string) => (await repo.getAiSettings(providerId)) ?? defaultAiSettings(env),
+    // Client names on file are always scrubbed before inference.
+    resolveKnownTerms: async (appt) => clientKnownTerms(await repo.getClient(appt.providerId, appt.clientRef)),
   }),
+  // Run history ("see the agents working") + per-client hourly rate frozen into drafts.
+  recorder: createRunRecorder(repo, clock),
+  resolveClient: (appt) => repo.getClient(appt.providerId, appt.clientRef),
   match: matchEvidence,
   assemble: assembleBundle,
   clock,
@@ -68,6 +77,7 @@ function apiDeps(env: Env): ApiDeps {
     repo: jobs.repo,
     clock,
     env,
+    recorder: jobs.recorder,
     assemble: assembleBundle,
     discover: (opts) => discoverSessions(jobs, opts),
     dispatch: () => dispatchPendingDeliveries(jobs),

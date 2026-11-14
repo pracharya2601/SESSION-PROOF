@@ -149,10 +149,14 @@ export class FakeInstance {
           ev = { payload: e!.payload as T, type: e!.type, timestamp: new Date() };
         } else {
           inst.status = "waiting";
-          ev = (await new Promise<unknown>((res, rej) => {
-            inst.waiters.push({ name, type: opts.type, resolve: res, reject: rej });
-          })) as typeof ev;
-          inst.status = "running";
+          try {
+            ev = (await new Promise<unknown>((res, rej) => {
+              inst.waiters.push({ name, type: opts.type, resolve: res, reject: rej });
+            })) as typeof ev;
+          } finally {
+            // A timeout rejection resumes the workflow too (it re-checks durable approval).
+            inst.status = "running";
+          }
         }
         inst.cache.set(name, structuredClone(ev));
         return ev;

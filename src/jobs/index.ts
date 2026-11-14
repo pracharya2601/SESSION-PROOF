@@ -19,12 +19,14 @@ import {
 import type {
   ApprovalRecord,
   Clock,
+  RunRecorder,
   DiscoverySummary,
   DispatchSummary,
   SessionStatus,
   WorkflowParams,
 } from "../contracts";
 import type { PendingDelivery, Repository } from "../db/repository";
+import { safeRecord } from "../history/index";
 
 export interface JobDeps {
   repo: Repository;
@@ -35,6 +37,8 @@ export interface JobDeps {
   maxAttempts?: number;
   /** v2: performs an auto drive upload (payload.deliveryId). Injected by the composition root. */
   processFileDelivery?: (deliveryId: string) => Promise<unknown>;
+  /** v3: run history (best-effort; never fails discovery). */
+  recorder?: RunRecorder;
 }
 
 export const DEFAULT_LOOKBACK_MINUTES = 7 * 24 * 60;
@@ -93,18 +97,35 @@ export async function discoverSessions(deps: JobDeps, opts: DiscoverOptions = {}
     const { session, created } = await deps.repo.ensureSession(appt, id, now);
     if (created) summary.created++;
 
+    const record = (revision: number, stage: "discovered" | "queued", label: string) =>
+      safeRecord(deps.recorder, {
+        runId: workflowInstanceId(session.id, revision),
+        runKind: "processing",
+        sessionId: session.id,
+        providerId: session.providerId,
+        stage,
+        status: "succeeded",
+        label,
+        detail: null,
+        meta: { clientRef: appt.clientRef, processingRevision: revision },
+      });
+
     if (!ENQUEUEABLE_STATUSES.includes(session.status)) {
+      if (created) await record(session.processingRevision, "discovered", "Completed appointment discovered");
       summary.skipped++;
       continue;
     }
     const res = await deps.repo.enqueueProcessing(session.id, ENQUEUEABLE_STATUSES, now);
     if (!res.ok) {
       // Concurrent discovery / state moved on — nothing to do.
+      if (created) await record(session.processingRevision, "discovered", "Completed appointment discovered");
       summary.skipped++;
       continue;
     }
     summary.enqueued++;
     const { processingRevision, deliveryKey: key } = res.value;
+    if (created) await record(processingRevision, "discovered", "Completed appointment discovered");
+    await record(processingRevision, "queued", "Queued for processing");
     try {
       await deps.queue.send(queueMessage(session.id, processingRevision));
       await deps.repo.completeDelivery(key, deps.clock.now());

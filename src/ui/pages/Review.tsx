@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { AlertOctagon, ArrowLeft, CheckCircle2, Info, Loader2, RefreshCw } from "lucide-react";
+import { AlertOctagon, ArrowLeft, CheckCircle2, ChevronDown, History, Info, Loader2, RefreshCw } from "lucide-react";
 import type { ReviewEdits, SessionBundle, SessionDetail } from "../../contracts";
 import { api, ApiClientError } from "../api";
 import { Button, Skeleton, StatusPill } from "../design";
@@ -11,7 +11,14 @@ import { PlanCoverage } from "../components/review/PlanCoverage";
 import { ChecksPanel } from "../components/review/ChecksPanel";
 import { TimePanel } from "../components/review/TimePanel";
 import { BillingPanel } from "../components/review/BillingPanel";
-import { CorrectionForm, validateMinutes, type CorrectionValues } from "../components/review/CorrectionForm";
+import {
+  CorrectionForm,
+  MAX_PARTICIPANT_CHOICES,
+  validateMinutes,
+  type CorrectionValues,
+  type DirectedValue,
+} from "../components/review/CorrectionForm";
+import { RunTimeline } from "../components/runs/RunTimeline";
 import { ApprovalRecordPanel } from "../components/review/ApprovalRecordPanel";
 import { ApproveButton } from "../components/review/ApproveButton";
 import { FilesCard } from "../components/review/FilesCard";
@@ -78,10 +85,32 @@ function getOrCreateIdemKey(cache: Map<string, string>, sessionId: string, revis
   return key;
 }
 
+/** Latest provider attestation text for a field (participant_direction / participant_choices). */
+function latestAttestation(bundle: SessionBundle | null, field: "participant_direction" | "participant_choices"): string | null {
+  let best: { text: string; at: string } | null = null;
+  for (const a of bundle?.attestations ?? []) {
+    if (a.field !== field) continue;
+    if (!best || a.attestedAt >= best.at) best = { text: a.text, at: a.attestedAt };
+  }
+  return best ? best.text : null;
+}
+
+function attestedDirected(bundle: SessionBundle | null): DirectedValue {
+  const t = latestAttestation(bundle, "participant_direction")?.trim().toLowerCase() ?? "";
+  if (t.startsWith("yes")) return "yes";
+  if (t.startsWith("no")) return "no";
+  return "unset";
+}
+
 function initialValues(bundle: SessionBundle | null): CorrectionValues {
   // Never prefill from the schedule: only an existing provider-confirmed value.
   const c = bundle?.documents.timeSummary.confirmedMinutes ?? null;
-  return { progress: "", minutes: c !== null ? String(c) : "" };
+  return {
+    progress: "",
+    minutes: c !== null ? String(c) : "",
+    directed: attestedDirected(bundle),
+    choices: latestAttestation(bundle, "participant_choices") ?? "",
+  };
 }
 
 function blockerLines(d: SessionDetail | null): string[] | undefined {
@@ -95,7 +124,8 @@ export default function Review(props: { sessionId: string; onBack: () => void })
   const [detail, setDetail] = useState<SessionDetail | null>(null);
   const [loadError, setLoadError] = useState<UiError | null>(null);
   const [loading, setLoading] = useState(true);
-  const [values, setValues] = useState<CorrectionValues>({ progress: "", minutes: "" });
+  const [values, setValues] = useState<CorrectionValues>({ progress: "", minutes: "", directed: "unset", choices: "" });
+  const [historyOpen, setHistoryOpen] = useState(true);
   const [saving, setSaving] = useState(false);
   const [approving, setApproving] = useState(false);
   const [finalizing, setFinalizing] = useState(false);
@@ -195,13 +225,29 @@ export default function Review(props: { sessionId: string; onBack: () => void })
   const minutesChanged = minutesTrim !== "" && Number(minutesTrim) !== currentConfirmed;
   const progressChanged = progressTrim !== "";
   const minutesCleared = minutesTrim === "" && currentConfirmed !== null;
-  const dirty = progressChanged || minutesChanged || minutesCleared;
+  const currentDirected = attestedDirected(bundle);
+  const currentChoices = latestAttestation(bundle, "participant_choices");
+  const directedValue = values.directed ?? currentDirected;
+  const directedChanged = directedValue !== "unset" && directedValue !== currentDirected;
+  const directedCleared = directedValue === "unset" && currentDirected !== "unset";
+  const choicesTrim = (values.choices ?? "").trim();
+  const choicesChanged = choicesTrim !== "" && choicesTrim !== (currentChoices ?? "").trim();
+  const choicesCleared = choicesTrim === "" && !!currentChoices;
+  const dirty =
+    progressChanged || minutesChanged || minutesCleared || directedChanged || directedCleared || choicesChanged || choicesCleared;
 
   function buildEdits(): ReviewEdits | null {
-    const edits: { confirmedMinutes?: number; progressConfirmation?: string } = {};
+    const edits: {
+      confirmedMinutes?: number;
+      progressConfirmation?: string;
+      participantDirected?: boolean;
+      participantChoices?: string;
+    } = {};
     if (minutesChanged && !validateMinutes(values.minutes)) edits.confirmedMinutes = Number(minutesTrim);
     if (progressChanged) edits.progressConfirmation = progressTrim;
-    return edits.confirmedMinutes !== undefined || edits.progressConfirmation !== undefined ? (edits as ReviewEdits) : null;
+    if (directedChanged) edits.participantDirected = directedValue === "yes";
+    if (choicesChanged && choicesTrim.length <= MAX_PARTICIPANT_CHOICES) edits.participantChoices = choicesTrim;
+    return Object.values(edits).some((v) => v !== undefined) ? (edits as ReviewEdits) : null;
   }
 
   // 409: refetch the record but keep the user's typed form values (never overwrite the form).
@@ -215,7 +261,7 @@ export default function Review(props: { sessionId: string; onBack: () => void })
     if (!bundle || saving) return;
     const edits = buildEdits();
     if (!edits) {
-      setError({ message: "Nothing to save. A confirmed duration cannot be removed, only changed." });
+      setError({ message: "Nothing to save. A confirmed duration or participant direction cannot be removed, only changed." });
       return;
     }
     setSaving(true);
@@ -349,6 +395,49 @@ export default function Review(props: { sessionId: string; onBack: () => void })
 
   const itemV = motionOK ? rvItem : rvItemReduced;
 
+  const historySection = (
+    <Section
+      label="History"
+      title="History"
+      icon={<History size={18} />}
+      className="rv-history"
+      aside={
+        <Button
+          variant="ghost"
+          size="sm"
+          iconOnly
+          aria-label={historyOpen ? "Collapse history" : "Expand history"}
+          aria-expanded={historyOpen}
+          aria-controls="rv-history-body"
+          onClick={() => setHistoryOpen((o) => !o)}
+          icon={
+            <motion.span style={{ display: "inline-flex" }} animate={{ rotate: historyOpen ? 180 : 0 }}>
+              <ChevronDown size={16} />
+            </motion.span>
+          }
+        />
+      }
+    >
+      <AnimatePresence initial={false}>
+        {historyOpen && (
+          <motion.div
+            id="rv-history-body"
+            key="history"
+            style={{ overflow: "hidden" }}
+            initial={motionOK ? { height: 0, opacity: 0 } : { opacity: 0 }}
+            animate={motionOK ? { height: "auto", opacity: 1 } : { opacity: 1 }}
+            exit={motionOK ? { height: 0, opacity: 0 } : { opacity: 0 }}
+            transition={{ duration: motionOK ? 0.28 : 0.1 }}
+          >
+            <div style={{ paddingTop: "var(--sp-3, 12px)" }}>
+              <RunTimeline sessionId={sessionId} />
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </Section>
+  );
+
   return (
     <motion.div className="rv-page" variants={rvStagger} initial="hidden" animate="show">
       <SessionHeader
@@ -428,12 +517,15 @@ export default function Review(props: { sessionId: string; onBack: () => void })
             </Button>
           </div>
         </Section>
-      ) : (
+      ) : null}
+      {!bundle && historySection}
+      {!bundle ? null : (
         <div className="rv-grid">
           <motion.div className="rv-main" variants={rvStagger}>
             <DocumentSections sections={bundle.documents.sections} onEvidence={onEvidence} activeEvidence={highlight} />
             <PlanCoverage entries={bundle.documents.planCoverage} />
             <EvidencePanel evidence={bundle.evidence} timezone={tz} highlightId={highlight} focusTick={focusTick} />
+            {historySection}
           </motion.div>
 
           <motion.aside className="rv-rail" variants={rvStagger} aria-label="Review summary and actions">
@@ -514,6 +606,8 @@ export default function Review(props: { sessionId: string; onBack: () => void })
                 saving={saving}
                 scheduledMinutes={bundle.documents.timeSummary.scheduledMinutes}
                 currentConfirmed={currentConfirmed}
+                currentDirected={currentDirected}
+                currentChoices={currentChoices}
               />
             )}
             {editable && (

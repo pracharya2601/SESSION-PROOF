@@ -95,6 +95,8 @@ export async function saveReview(
   });
   if (req.edits.progressConfirmation !== undefined) fresh.push(mk("progress", req.edits.progressConfirmation));
   if (req.edits.confirmedMinutes !== undefined) fresh.push(mk("duration", String(req.edits.confirmedMinutes)));
+  if (req.edits.participantDirected !== undefined) fresh.push(mk("participant_direction", req.edits.participantDirected ? "yes" : "no"));
+  if (req.edits.participantChoices !== undefined) fresh.push(mk("participant_choices", req.edits.participantChoices));
 
   const superseded = new Set(fresh.map((a) => a.field));
   const attestations = [...current.attestations.filter((a) => !superseded.has(a.field)), ...fresh];

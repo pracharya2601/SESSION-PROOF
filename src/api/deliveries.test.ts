@@ -18,7 +18,12 @@ const m = vi.hoisted(() => {
     ConnectionError,
     CloudApiError,
     getValidAccessToken: vi.fn(async () => "tok"),
-    renderFilePdf: vi.fn(async (kind: string) => new TextEncoder().encode(`%PDF-${kind}`)),
+    buildDocModel: vi.fn((kind: string, input: { bundle: { bundleRevision: number }; template: { id: string } }) => ({
+      kind,
+      templateId: input.template.id,
+      filename: `client-A_${kind}_r${input.bundle.bundleRevision}.pdf`,
+    })),
+    renderDocModelPdf: vi.fn(async (model: { kind: string }) => new TextEncoder().encode(`%PDF-${model.kind}`)),
     ensureFolder: vi.fn(async (_path: string) => ({ folderId: "fold-1", webUrl: "https://drive.example/fold-1" })),
     uploadFile: vi.fn(async (_f: string, name: string, _b: Uint8Array, _ct: string) => ({ fileId: `f-${name}`, webUrl: null })),
     createDraft: vi.fn(async (_d: unknown) => ({ draftId: "draft-1", webUrl: "https://mail.example/draft-1" })),
@@ -28,8 +33,6 @@ const m = vi.hoisted(() => {
 
 vi.mock("../connections/index", () => ({ ConnectionError: m.ConnectionError, getValidAccessToken: m.getValidAccessToken }));
 vi.mock("../artifacts/index", () => ({
-  renderFilePdf: m.renderFilePdf,
-  fileNameFor: (kind: string, final: { bundleRevision: number }) => `client-A_${kind}_r${final.bundleRevision}.pdf`,
   sessionFiles: (sessionId: string, final: { bundleRevision: number }) =>
     ["session_note", "invoice", "approval_record"].map((kind) => ({
       kind,
@@ -38,6 +41,11 @@ vi.mock("../artifacts/index", () => ({
       contentType: "application/pdf",
       downloadUrl: `/api/sessions/${sessionId}/files/${kind}`,
     })),
+}));
+vi.mock("../documents/index", async (orig) => ({
+  ...((await orig()) as object),
+  buildDocModel: m.buildDocModel,
+  renderDocModelPdf: m.renderDocModelPdf,
 }));
 vi.mock("../integrations/cloud/index", () => ({
   CloudApiError: m.CloudApiError,

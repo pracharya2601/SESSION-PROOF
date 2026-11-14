@@ -5,6 +5,7 @@ import type {
   Clock,
   DiscoverySummary,
   DispatchSummary,
+  RunRecorder,
 } from "../contracts";
 import type { Repository } from "../db/repository";
 import type { Env } from "../env";
@@ -22,6 +23,8 @@ export interface ApiDeps {
   seed?: () => Promise<void>;
   /** v2: injectable fetch for outbound provider calls (OAuth, Drive, Mail, AI). Default: global fetch. */
   fetch?: typeof fetch;
+  /** v3: run history recorder (best-effort; never fails a request). */
+  recorder?: RunRecorder;
 }
 
 /** Authenticated actor — always derived server-side. */

@@ -1,9 +1,8 @@
-import { useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
-import { Download, ExternalLink } from "lucide-react";
+import { Download } from "lucide-react";
 import type { FileKind } from "../../../contracts";
 import { api } from "../../api";
-import { Button, Dialog, Spinner } from "../../design";
+import { Button, Dialog } from "../../design";
+import { SessionDocPreview } from "../doc/SessionDocPreview";
 import { FILE_LABELS } from "../settings/shared";
 
 export function PreviewDialog({
@@ -19,8 +18,6 @@ export function PreviewDialog({
   filename?: string;
   onClose: () => void;
 }) {
-  const [loaded, setLoaded] = useState<string | null>(null);
-  const src = kind ? api.fileUrl(sessionId, kind, { inline: true }) : "";
   return (
     <Dialog
       open={kind != null}
@@ -31,11 +28,8 @@ export function PreviewDialog({
       footer={
         kind && (
           <>
-            <a className="ds-btn ds-btn-ghost ds-btn-md u2-link-btn" href={src} target="_blank" rel="noopener noreferrer">
-              <ExternalLink size={16} aria-hidden="true" /> Open in new tab
-            </a>
             <a className="ds-btn ds-btn-primary ds-btn-md u2-link-btn" href={api.fileUrl(sessionId, kind)} download={filename ?? true}>
-              <Download size={16} aria-hidden="true" /> Download
+              <Download size={16} aria-hidden="true" /> Download PDF
             </a>
             <Button variant="secondary" onClick={onClose}>
               Close
@@ -44,18 +38,7 @@ export function PreviewDialog({
         )
       }
     >
-      {kind && (
-        <div className="u2-pdf-frame">
-          <AnimatePresence>
-            {loaded !== src && (
-              <motion.div key="load" className="u2-pdf-loading" initial={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                <Spinner size={22} label="Loading preview" />
-              </motion.div>
-            )}
-          </AnimatePresence>
-          <iframe key={src} src={src} title={`${FILE_LABELS[kind]} preview`} onLoad={() => setLoaded(src)} />
-        </div>
-      )}
+      {kind && <SessionDocPreview key={`${sessionId}:${kind}`} sessionId={sessionId} kind={kind} />}
     </Dialog>
   );
 }

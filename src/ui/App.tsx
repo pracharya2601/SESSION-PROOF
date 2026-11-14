@@ -18,6 +18,12 @@ const Review = lazy(() => import("./pages/Review"));
 const Files = lazy(() => import("./pages/Files"));
 const Connections = lazy(() => import("./pages/Connections"));
 const Settings = lazy(() => import("./pages/Settings"));
+const Clients = lazy(() => import("./pages/Clients"));
+const ClientDetail = lazy(() => import("./pages/ClientDetail"));
+const Templates = lazy(() => import("./pages/Templates"));
+const TemplateEditor = lazy(() => import("./pages/TemplateEditor"));
+const Runs = lazy(() => import("./pages/Runs"));
+const RunDetail = lazy(() => import("./pages/RunDetail"));
 
 const DEMO_IDENTITY = "demo.provider@example.invalid";
 const COLLAPSE_KEY = "vexo.sidebar.collapsed";
@@ -207,6 +213,12 @@ function AppInner() {
                     {route.name === "files" && <Files />}
                     {route.name === "connections" && <Connections />}
                     {route.name === "settings" && <Settings />}
+                    {route.name === "clients" && <Clients />}
+                    {route.name === "client" && <ClientDetail clientRef={route.ref} />}
+                    {route.name === "templates" && <Templates />}
+                    {route.name === "template" && <TemplateEditor templateId={route.id} />}
+                    {route.name === "runs" && <Runs />}
+                    {route.name === "run" && <RunDetail runId={route.runId} />}
                   </Suspense>
                 </motion.div>
               </AnimatePresence>

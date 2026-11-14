@@ -27,6 +27,17 @@ import type {
   SettingsBundle,
   StartConnectionResponse,
   StorageSettings,
+  // v3
+  ClientInput,
+  ClientRecord,
+  ClientSummary,
+  DocModel,
+  DocumentTemplate,
+  ListRunsResponse,
+  PreviewTemplateRequest,
+  RunDetail,
+  RunSummary,
+  TemplateInput,
 } from "../contracts";
 
 /** GET /api/me — shape kept loose; the server derives identity. */
@@ -151,7 +162,41 @@ export const api = {
   saveStorageSettings: (s: StorageSettings) => dataOf<SettingsBundle>("PUT", "/api/settings/storage", s),
   saveEmailSettings: (s: EmailSettings) => dataOf<SettingsBundle>("PUT", "/api/settings/email", s),
   saveAiSettings: (s: AiSettings) => dataOf<SettingsBundle>("PUT", "/api/settings/ai", s),
+
+  // ---------------------------------------------------------------- v3
+  listClients: (opts?: { search?: string; includeInactive?: boolean }) =>
+    dataOf<ClientSummary[]>(
+      "GET",
+      "/api/clients" +
+        query({ search: opts?.search?.trim() || undefined, includeInactive: opts?.includeInactive ? "1" : undefined }),
+    ),
+  getClient: (ref: string) => dataOf<ClientSummary>("GET", `/api/clients/${enc(ref)}`),
+  saveClient: (input: ClientInput) => dataOf<ClientRecord>("PUT", `/api/clients/${enc(input.clientRef)}`, input),
+  listTemplates: (kind?: FileKind) => dataOf<DocumentTemplate[]>("GET", "/api/templates" + query({ kind })),
+  createTemplate: (input: TemplateInput) => dataOf<DocumentTemplate>("POST", "/api/templates", input),
+  updateTemplate: (id: string, input: TemplateInput) =>
+    dataOf<DocumentTemplate>("PUT", `/api/templates/${enc(id)}`, input),
+  deleteTemplate: (id: string) => dataOf<{ deleted: true }>("DELETE", `/api/templates/${enc(id)}`),
+  setDefaultTemplate: (kind: FileKind, templateId: string | null) =>
+    dataOf<{ kind: FileKind; templateId: string | null }>("PUT", `/api/templates/default/${enc(kind)}`, { templateId }),
+  previewTemplate: (req: PreviewTemplateRequest) => dataOf<DocModel>("POST", "/api/templates/preview", req),
+  getDocument: (sessionId: string, kind: FileKind, templateId?: string) =>
+    dataOf<DocModel>("GET", `/api/sessions/${enc(sessionId)}/documents/${enc(kind)}` + query({ templateId })),
+  listRuns: (opts?: { status?: RunSummary["status"]; sessionId?: string; cursor?: string }) =>
+    dataOf<ListRunsResponse>(
+      "GET",
+      "/api/runs" + query({ status: opts?.status, sessionId: opts?.sessionId, cursor: opts?.cursor }),
+    ),
+  getRun: (runId: string) => dataOf<RunDetail>("GET", `/api/runs/${enc(runId)}`),
 };
+
+/** Builds `?a=1&b=2` from defined, non-empty values ("" when none). */
+function query(params: Record<string, string | undefined>): string {
+  const parts = Object.entries(params)
+    .filter((e): e is [string, string] => typeof e[1] === "string" && e[1] !== "")
+    .map(([k, v]) => `${enc(k)}=${enc(v)}`);
+  return parts.length ? `?${parts.join("&")}` : "";
+}
 
 export function exportUrl(id: string, format: "json" | "html"): string {
   return `/api/sessions/${enc(id)}/export?format=${format}`;
