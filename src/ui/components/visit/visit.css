@@ -1,0 +1,63 @@
+/* Record visit (band capture). Uses tokens.css + u2.css; classes prefixed rv-. */
+
+.rv-grid { display: grid; gap: var(--sp-5); grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); align-items: start; }
+@media (max-width: 960px) { .rv-grid { grid-template-columns: 1fr; } }
+.rv-col { display: flex; flex-direction: column; gap: var(--sp-5); min-width: 0; }
+
+.rv-strip { display: flex; flex-wrap: wrap; gap: var(--sp-2); align-items: center; }
+
+/* band */
+.rv-number { max-width: 140px; }
+.rv-choice-desc { font-size: var(--text-xs); color: var(--muted); line-height: 1.35; }
+.rv-choice-off { opacity: 0.55; cursor: not-allowed; }
+.rv-choice-off:hover { background: var(--surface-2); border-color: var(--border); }
+.rv-choice-ico {
+  flex: none; width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center;
+  background: var(--surface-hover); color: var(--accent-strong);
+}
+.rv-band-facts { display: grid; gap: var(--sp-2) var(--sp-4); grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); margin: 0; }
+.rv-band-facts div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.rv-band-facts dt { font-size: var(--text-xs); color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+.rv-band-facts dd { margin: 0; font-weight: 600; color: var(--text); overflow-wrap: anywhere; }
+.rv-hint { display: flex; gap: var(--sp-2); align-items: flex-start; font-size: var(--text-sm); color: var(--text-2); margin: 0; }
+.rv-hint svg { flex: none; margin-top: 2px; color: var(--accent-strong); }
+
+/* consent */
+.rv-consent {
+  display: flex; gap: var(--sp-3); align-items: flex-start; padding: var(--sp-3) var(--sp-4); cursor: pointer;
+  border-radius: var(--r-md); border: 1px solid var(--border); background: var(--surface-2);
+  font-size: var(--text-sm); color: var(--text);
+}
+.rv-consent:focus-within { box-shadow: var(--ring); }
+.rv-consent input { flex: none; margin-top: 2px; }
+.rv-consent[data-disabled] { opacity: 0.6; cursor: not-allowed; }
+.rv-consent span { display: flex; flex-direction: column; gap: 4px; }
+.rv-consent small { color: var(--muted); font-size: var(--text-xs); }
+
+.rv-actions { display: flex; flex-wrap: wrap; gap: var(--sp-3); align-items: center; }
+.rv-why { margin: 0; font-size: var(--text-xs); color: var(--muted); }
+
+/* live status */
+.rv-live { display: flex; flex-wrap: wrap; gap: var(--sp-4); align-items: center; justify-content: space-between; }
+.rv-timer { font-size: var(--text-3xl); font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; color: var(--text); line-height: 1; }
+.rv-mic {
+  --blue: #2f7bff;
+  display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 14px; border-radius: var(--r-full);
+  font-size: var(--text-sm); font-weight: 650; color: #fff; background: var(--blue);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--blue) 22%, transparent), 0 0 22px color-mix(in srgb, var(--blue) 55%, transparent);
+}
+.rv-mic-off { background: var(--surface-hover); color: var(--muted); box-shadow: none; }
+.rv-mic-dot { width: 9px; height: 9px; border-radius: 50%; background: #fff; }
+.rv-counters { display: flex; gap: var(--sp-4); font-size: var(--text-sm); color: var(--muted); font-variant-numeric: tabular-nums; }
+.rv-counters strong { color: var(--text); font-weight: 650; }
+
+/* transcript */
+.rv-transcript { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-3); max-height: min(60vh, 560px); overflow-y: auto; scroll-behavior: smooth; }
+.rv-line { display: grid; grid-template-columns: auto 1fr; gap: 2px var(--sp-3); align-items: baseline; }
+.rv-line-meta { grid-column: 1 / -1; display: flex; gap: var(--sp-2); align-items: center; font-size: var(--text-xs); color: var(--muted); }
+.rv-line-speaker { font-weight: 650; color: var(--accent-strong); }
+.rv-line-text { grid-column: 1 / -1; margin: 0; color: var(--text); line-height: 1.5; }
+.rv-line-interim .rv-line-text { color: var(--subtle); font-style: italic; }
+.rv-empty { margin: 0; color: var(--muted); font-size: var(--text-sm); }
+
+@media (prefers-reduced-motion: reduce) { .rv-transcript { scroll-behavior: auto; } }

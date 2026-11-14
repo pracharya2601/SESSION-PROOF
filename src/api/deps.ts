@@ -9,6 +9,7 @@ import type {
 } from "../contracts";
 import type { Repository } from "../db/repository";
 import type { Env } from "../env";
+import type { VisitDeps } from "./visits";
 
 export interface ApiDeps {
   repo: Repository;
@@ -25,6 +26,8 @@ export interface ApiDeps {
   fetch?: typeof fetch;
   /** v3: run history recorder (best-effort; never fails a request). */
   recorder?: RunRecorder;
+  /** Band visits (Vexo band capture). Absent → /api/visits returns 503. */
+  visits?: VisitDeps;
 }
 
 /** Authenticated actor — always derived server-side. */

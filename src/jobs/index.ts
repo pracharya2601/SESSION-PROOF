@@ -17,6 +17,7 @@ import {
   workflowInstanceId,
 } from "../contracts";
 import type {
+  Appointment,
   ApprovalRecord,
   Clock,
   RunRecorder,
@@ -95,49 +96,61 @@ export async function discoverSessions(deps: JobDeps, opts: DiscoverOptions = {}
 
   for (const appt of appointments) {
     summary.examined++;
-    const id = await sessionIdFor(appt.providerId, appt.occurrenceId);
-    const { session, created } = await deps.repo.ensureSession(appt, id, now);
-    if (created) summary.created++;
-
-    const record = (revision: number, stage: "discovered" | "queued", label: string) =>
-      safeRecord(deps.recorder, {
-        runId: workflowInstanceId(session.id, revision),
-        runKind: "processing",
-        sessionId: session.id,
-        providerId: session.providerId,
-        stage,
-        status: "succeeded",
-        label,
-        detail: null,
-        meta: { clientRef: appt.clientRef, processingRevision: revision },
-      });
-
-    if (!ENQUEUEABLE_STATUSES.includes(session.status)) {
-      if (created) await record(session.processingRevision, "discovered", "Completed appointment discovered");
-      summary.skipped++;
-      continue;
-    }
-    const res = await deps.repo.enqueueProcessing(session.id, ENQUEUEABLE_STATUSES, now);
-    if (!res.ok) {
-      // Concurrent discovery / state moved on — nothing to do.
-      if (created) await record(session.processingRevision, "discovered", "Completed appointment discovered");
-      summary.skipped++;
-      continue;
-    }
-    summary.enqueued++;
-    const { processingRevision, deliveryKey: key } = res.value;
-    if (created) await record(processingRevision, "discovered", "Completed appointment discovered");
-    await record(processingRevision, "queued", "Queued for processing");
-    try {
-      await deps.queue.send(queueMessage(session.id, processingRevision));
-      await deps.repo.completeDelivery(key, deps.clock.now());
-    } catch (err) {
-      // Durable intent stays pending; dispatchPendingDeliveries retries.
-      log("discovery.send_deferred", { sessionId: session.id, processingRevision, error: errKind(err) });
-    }
+    const r = await enqueueAppointment(deps, appt);
+    if (r.created) summary.created++;
+    if (r.enqueued) summary.enqueued++;
+    else summary.skipped++;
   }
   log("discovery.done", { ...summary });
   return summary;
+}
+
+/**
+ * Ensure the session for one appointment and enqueue its processing (idempotent).
+ * Used by discovery and by "stop visit", which processes a band visit immediately.
+ */
+export async function enqueueAppointment(
+  deps: JobDeps,
+  appt: Appointment,
+): Promise<{ sessionId: string; created: boolean; enqueued: boolean }> {
+  const now = deps.clock.now();
+  const id = await sessionIdFor(appt.providerId, appt.occurrenceId);
+  const { session, created } = await deps.repo.ensureSession(appt, id, now);
+
+  const record = (revision: number, stage: "discovered" | "queued", label: string) =>
+    safeRecord(deps.recorder, {
+      runId: workflowInstanceId(session.id, revision),
+      runKind: "processing",
+      sessionId: session.id,
+      providerId: session.providerId,
+      stage,
+      status: "succeeded",
+      label,
+      detail: null,
+      meta: { clientRef: appt.clientRef, processingRevision: revision },
+    });
+
+  if (!ENQUEUEABLE_STATUSES.includes(session.status)) {
+    if (created) await record(session.processingRevision, "discovered", "Completed appointment discovered");
+    return { sessionId: session.id, created, enqueued: false };
+  }
+  const res = await deps.repo.enqueueProcessing(session.id, ENQUEUEABLE_STATUSES, now);
+  if (!res.ok) {
+    // Concurrent discovery / state moved on — nothing to do.
+    if (created) await record(session.processingRevision, "discovered", "Completed appointment discovered");
+    return { sessionId: session.id, created, enqueued: false };
+  }
+  const { processingRevision, deliveryKey: key } = res.value;
+  if (created) await record(processingRevision, "discovered", "Completed appointment discovered");
+  await record(processingRevision, "queued", "Queued for processing");
+  try {
+    await deps.queue.send(queueMessage(session.id, processingRevision));
+    await deps.repo.completeDelivery(key, deps.clock.now());
+  } catch (err) {
+    // Durable intent stays pending; dispatchPendingDeliveries retries.
+    log("discovery.send_deferred", { sessionId: session.id, processingRevision, error: errKind(err) });
+  }
+  return { sessionId: session.id, created, enqueued: true };
 }
 
 // ------------------------------------------------------------------ notification

@@ -17,6 +17,7 @@ import {
   EvidenceUnavailableError,
   ExtractionRejectedError,
   SCHEMA_VERSION,
+  VISIT_APPOINTMENT_PREFIX,
   workflowInstanceId,
 } from "../contracts";
 import type {
@@ -396,7 +397,8 @@ async function prepareDraft(deps: WorkflowDeps, sessionId: string, rev: number, 
   if (!baseConfig) return fail("FAILED", "Service configuration unavailable.");
 
   // retrieve
-  await emit("evidence", "started", "Retrieving evidence", { meta: { evidenceMode: deps.evidence.mode } });
+  const evidenceMode = deps.evidence.modeFor ? await deps.evidence.modeFor(appointment) : deps.evidence.mode;
+  await emit("evidence", "started", "Retrieving evidence", { meta: { evidenceMode } });
   let result: EvidenceResult;
   try {
     result = await deps.evidence.retrieveEvidence(appointment);
@@ -425,7 +427,11 @@ async function prepareDraft(deps: WorkflowDeps, sessionId: string, rev: number, 
     appointment.startAt,
     appointment.endAt,
   );
-  const competing = overlapping.filter((a) => a.id !== appointment.id);
+  // Band-visit evidence is bound to its own visit by id, not by time: a band appointment has no
+  // competitors, and it never competes for another appointment's time-window evidence.
+  const competing = appointment.id.startsWith(VISIT_APPOINTMENT_PREFIX)
+    ? []
+    : overlapping.filter((a) => a.id !== appointment.id && !a.id.startsWith(VISIT_APPOINTMENT_PREFIX));
   const match = deps.match(appointment, result, competing);
   const matchMeta = { outcome: match.outcome, matched: match.evidence.length, competing: competing.length };
   if (match.outcome === "ambiguous") {
@@ -455,7 +461,7 @@ async function prepareDraft(deps: WorkflowDeps, sessionId: string, rev: number, 
   // assemble
   const bundleRevision = session.currentBundleRevision + 1;
   const provenance: BundleProvenance = {
-    evidenceMode: deps.evidence.mode,
+    evidenceMode,
     extractionMode: extraction.mode,
     runtimeMode: deps.runtimeMode,
     schemaVersion: SCHEMA_VERSION,

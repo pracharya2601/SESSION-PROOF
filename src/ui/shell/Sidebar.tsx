@@ -6,6 +6,7 @@ import {
   Ellipsis,
   FolderOpen,
   LayoutTemplate,
+  Mic,
   PanelLeftClose,
   PanelLeftOpen,
   PlugZap,
@@ -32,6 +33,7 @@ export const NAV_GROUPS: { id: string; label: string; items: NavItem[] }[] = [
     label: "Work",
     items: [
       { key: "today", label: "Today", href: "#/", icon: CalendarCheck2 },
+      { key: "visit", label: "Record visit", href: "#/visit", icon: Mic },
       { key: "runs", label: "Runs", href: "#/runs", icon: Activity },
       { key: "files", label: "Files", href: "#/files", icon: FolderOpen },
     ],
@@ -57,7 +59,7 @@ export const NAV_GROUPS: { id: string; label: string; items: NavItem[] }[] = [
 export const NAV: NavItem[] = NAV_GROUPS.flatMap((g) => g.items);
 
 /** Items shown directly in the mobile bottom nav; the rest go in the "More" sheet. */
-const BOTTOM_KEYS: NavKey[] = ["today", "runs", "clients", "files"];
+const BOTTOM_KEYS: NavKey[] = ["today", "visit", "runs", "clients"];
 const BOTTOM = BOTTOM_KEYS.map((k) => NAV.find((n) => n.key === k)!);
 const MORE = NAV.filter((n) => !BOTTOM_KEYS.includes(n.key));
 

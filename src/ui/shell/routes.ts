@@ -10,15 +10,18 @@ export type Route =
   | { name: "templates" }
   | { name: "template"; id: string }
   | { name: "runs" }
-  | { name: "run"; runId: string };
+  | { name: "run"; runId: string }
+  // band capture
+  | { name: "visit"; id?: string };
 
-export type NavKey = "today" | "runs" | "files" | "clients" | "templates" | "connections" | "settings";
+export type NavKey = "today" | "visit" | "runs" | "files" | "clients" | "templates" | "connections" | "settings";
 
 const DETAIL: { re: RegExp; make: (v: string) => Route }[] = [
   { re: /^\/sessions\/([^/]+)$/, make: (id) => ({ name: "session", id }) },
   { re: /^\/clients\/([^/]+)$/, make: (ref) => ({ name: "client", ref }) },
   { re: /^\/templates\/([^/]+)$/, make: (id) => ({ name: "template", id }) },
   { re: /^\/runs\/([^/]+)$/, make: (runId) => ({ name: "run", runId }) },
+  { re: /^\/visit\/([^/]+)$/, make: (id) => ({ name: "visit", id }) },
 ];
 
 const SIMPLE: Record<string, Route> = {
@@ -28,6 +31,7 @@ const SIMPLE: Record<string, Route> = {
   "/clients": { name: "clients" },
   "/templates": { name: "templates" },
   "/runs": { name: "runs" },
+  "/visit": { name: "visit" },
 };
 
 /** Parses `#/path?query`. Query strings (e.g. `#/connections?connected=google`) are ignored here; pages read them. */
@@ -56,6 +60,8 @@ export function routeKey(r: Route): string {
       return `template:${r.id}`;
     case "run":
       return `run:${r.runId}`;
+    case "visit":
+      return r.id ? `visit:${r.id}` : "visit";
     default:
       return r.name;
   }
@@ -88,6 +94,7 @@ export const ROUTE_TITLES: Record<Route["name"], string> = {
   template: "Template designer",
   runs: "Runs",
   run: "Run detail",
+  visit: "Record visit",
 };
 
 /** Hash links for detail routes (values are URL-encoded). */
@@ -96,4 +103,5 @@ export const hrefs = {
   template: (id: string) => `#/templates/${encodeURIComponent(id)}`,
   run: (runId: string) => `#/runs/${encodeURIComponent(runId)}`,
   session: (id: string) => `#/sessions/${encodeURIComponent(id)}`,
+  visit: (id?: string) => (id ? `#/visit/${encodeURIComponent(id)}` : "#/visit"),
 };

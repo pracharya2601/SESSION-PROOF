@@ -40,5 +40,7 @@ export interface Env {
   /** Azure AD tenant; default "common". */
   MS_TENANT?: string;
   TOKEN_ENCRYPTION_KEY?: string;
+  /** Band visits: Deepgram live speech-to-text. Absent → simulated transcript in local dev, disabled when deployed. */
+  DEEPGRAM_API_KEY?: string;
   SESSION_SECRET?: string;
 }

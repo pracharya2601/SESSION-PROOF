@@ -33,6 +33,8 @@ export interface EvidenceSource {
    * an empty `items` array means retrieval succeeded and found nothing.
    */
   retrieveEvidence(appointment: Appointment): Promise<EvidenceResult>;
+  /** Optional: the honest mode for THIS appointment when a source routes per appointment (band visits). */
+  modeFor?(appointment: Appointment): Promise<SourceMode>;
 }
 
 export class EvidenceUnavailableError extends Error {

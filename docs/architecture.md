@@ -38,6 +38,7 @@ cron */5 (or POST /api/sync)
 | Run history | `createRunRecorder(repo, clock)`. Recording never fails the operation | `src/history/` |
 | Security | `requireActor`, `originGuard`, `apiError`, `encryptToken`/`decryptToken`, `log` (redacting), `escapeHtml` | `src/security/` |
 | Export | `renderExportHtml`, `exportJson` | `src/export/` |
+| Band visits | `createVisitStore`, `CaptureSession`, `openDeepgram`/`openSimulated`, `BandEvidenceSource`/`VisitRoutingEvidenceSource`, stream tokens | `src/band/`, `src/api/visits.ts` (see `docs/band-bridge.md`) |
 
 ## Routes
 Every `/api/*` route needs the actor (cookie in dev, Access header in production), except `/api/health`. Mutations must be same-origin. Responses are wrapped as `{ data, correlationId }` or `{ error }` with `Cache-Control: no-store`.
@@ -54,6 +55,7 @@ Every `/api/*` route needs the actor (cookie in dev, Access header in production
 | Clients | `GET /api/clients?search&includeInactive`, `GET/PUT /api/clients/:ref` |
 | Templates | `GET/POST /api/templates`, `PUT/DELETE /api/templates/:id` (builtin → 409), `PUT /api/templates/default/:kind`, `POST /api/templates/preview` |
 | Runs | `GET /api/runs?status&sessionId&cursor`, `GET /api/runs/:runId` |
+| Band visits | `GET /api/visits/capture-status`, `GET/POST /api/visits`, `GET /api/visits/:id`, `POST /api/visits/:id/stop`, WS `GET /api/visits/:id/stream` (token or cookie+Origin; mounted before requireActor) |
 | Dev only (dev auth + local runtime) | `POST /api/dev/seed`, `POST /api/dev/reset-session/:id` |
 
 ## Data rules
@@ -69,4 +71,4 @@ Hash routes: `#/` Today, `#/sessions/:id` Review, `#/files`, `#/clients[/:ref]`,
 Review page (`src/ui/pages/Review.tsx`, `src/ui/components/review/`): the documents sit on the left. The right rail holds the status card with `ApprovalChecklist` (blockers → Fix → Save → Approve), the correction form, the files card, the approval record, `AmendCard` (Amend, earlier revisions, dev reset) and `RunTimeline`.
 
 ## Migrations
-`0001_init` · `0002_sync_settings` · `0003_v2` (connections, settings, deliveries) · `0004_v3` (clients, templates, snapshots, run events) · `0005_amendments` (`superseded_finals`).
+`0001_init` · `0002_sync_settings` · `0003_v2` (connections, settings, deliveries) · `0004_v3` (clients, templates, snapshots, run events) · `0005_amendments` (`superseded_finals`) · `0006_band_visits` (`band_visits`, `band_segments`; no audio).

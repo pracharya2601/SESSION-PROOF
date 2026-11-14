@@ -39,6 +39,12 @@ import type {
   RunDetail,
   RunSummary,
   TemplateInput,
+  // band capture
+  CaptureStatus,
+  StartVisitRequest,
+  StartVisitResponse,
+  StopVisitResponse,
+  VisitDetail,
 } from "../contracts";
 
 /** GET /api/me — shape kept loose; the server derives identity. */
@@ -197,6 +203,15 @@ export const api = {
       "/api/runs" + query({ status: opts?.status, sessionId: opts?.sessionId, cursor: opts?.cursor }),
     ),
   getRun: (runId: string) => dataOf<RunDetail>("GET", `/api/runs/${enc(runId)}`),
+
+  // ---------------------------------------------------------------- band capture (Record visit)
+  /** Which transcriber a new visit would use now (null = capture unavailable, see reason). */
+  captureStatus: () => dataOf<CaptureStatus>("GET", "/api/visits/capture-status"),
+  /** Creates the visit (201) and returns the absolute stream URL (with ?token=) for the WebSocket. */
+  startVisit: (req: StartVisitRequest) => dataOf<StartVisitResponse>("POST", "/api/visits", req),
+  getVisit: (id: string) => dataOf<VisitDetail>("GET", `/api/visits/${enc(id)}`),
+  /** Call after the stream sent "done" (or closed): hands the visit to processing. */
+  stopVisit: (id: string) => dataOf<StopVisitResponse>("POST", `/api/visits/${enc(id)}/stop`, {}),
 };
 
 /** Builds `?a=1&b=2` from defined, non-empty values ("" when none). */

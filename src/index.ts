@@ -18,6 +18,7 @@ import {
   handleQueueBatch,
   notifyApproval,
   runScheduledSync,
+  enqueueAppointment,
   type JobDeps,
 } from "./jobs";
 import { setWorkflowDepsFactory } from "./workflow";
@@ -26,6 +27,8 @@ import { defaultAiSettings } from "./api/settings-v2";
 import { createRunRecorder } from "./history";
 import { clientKnownTerms } from "./clients";
 import { finalizeDirect } from "./services/approval/amend";
+import { createVisitStore } from "./band/store";
+import { BandEvidenceSource, VisitRoutingEvidenceSource } from "./band/evidence";
 
 export { SessionWorkflow } from "./workflow";
 
@@ -66,7 +69,11 @@ setWorkflowDepsFactory((env: Env) => {
   repo,
   // Live Vexo evidence needs an MCP client (separate MCP server, not wired here).
   // In live mode without one, retrieval fails loudly with "not_configured".
-  evidence: createEvidenceSource(env),
+  // Band-visit appointments read their own recorded transcript; all others use EVIDENCE_MODE.
+  evidence: new VisitRoutingEvidenceSource(
+    new BandEvidenceSource(createVisitStore(env.DB), () => clock.now()),
+    createEvidenceSource(env),
+  ),
   // Each provider's own AI settings (vendor, model, privacy toggles); PII scrubbing runs before any call.
   extractor: createExtractor(env, {
     resolveSettings: async (providerId: string) => (await repo.getAiSettings(providerId)) ?? defaultAiSettings(env),
@@ -96,6 +103,10 @@ function apiDeps(env: Env): ApiDeps {
     dispatch: () => dispatchPendingDeliveries(jobs),
     notifyApproval: (approval) => notifyApproval(jobs, approval),
     seed: env.AUTH_MODE === "dev" && env.RUNTIME_MODE !== "deployed" ? () => seedDemoData(jobs.repo) : undefined,
+    visits: {
+      store: createVisitStore(env.DB),
+      enqueueAppointment: (appt) => enqueueAppointment(jobs, appt),
+    },
   };
 }
 

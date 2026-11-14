@@ -16,6 +16,7 @@ import { clientsRoutes } from "./clients";
 import { templatesRoutes } from "./templates";
 import { documentsRoutes } from "./documents";
 import { runsRoutes } from "./runs";
+import { visitsRoutes, visitStreamRoutes } from "./visits";
 
 export { ok } from "./respond";
 export { healthRoutes } from "./health";
@@ -36,6 +37,8 @@ export function createApi(deps: ApiDeps): Hono<AppBindings> {
 
   app.route("/", authRoutes(deps));
   app.route("/", healthRoutes(deps));
+  // Band audio stream: authenticates itself (stream token for native bridges, or cookie + Origin).
+  app.route("/", visitStreamRoutes(deps));
 
   app.use("/api/*", requireActor(deps));
 
@@ -56,6 +59,8 @@ export function createApi(deps: ApiDeps): Hono<AppBindings> {
   app.route("/", templatesRoutes(deps));
   app.route("/", documentsRoutes(deps));
   app.route("/", runsRoutes(deps));
+  // Band visits: record a visit with a Vexo band; the transcript becomes the session evidence.
+  app.route("/", visitsRoutes(deps));
 
   app.notFound((c) => {
     const cid = c.get("correlationId") ?? "";

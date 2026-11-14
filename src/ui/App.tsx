@@ -12,6 +12,7 @@ import { SignIn } from "./shell/SignIn";
 import { TopBar } from "./shell/TopBar";
 import { navKeyOf, parseHash, ROUTE_TITLES, routeKey, type Route } from "./shell/routes";
 import { useTheme } from "./shell/theme";
+import { navigationAllowed } from "./shell/navGuard";
 import Today from "./pages/Today";
 
 const Review = lazy(() => import("./pages/Review"));
@@ -24,6 +25,7 @@ const Templates = lazy(() => import("./pages/Templates"));
 const TemplateEditor = lazy(() => import("./pages/TemplateEditor"));
 const Runs = lazy(() => import("./pages/Runs"));
 const RunDetail = lazy(() => import("./pages/RunDetail"));
+const RecordVisit = lazy(() => import("./pages/RecordVisit"));
 
 const DEMO_IDENTITY = "demo.provider@example.invalid";
 const COLLAPSE_KEY = "vexo.sidebar.collapsed";
@@ -77,6 +79,8 @@ function AppInner() {
 
   useEffect(() => {
     const onHash = () => {
+      // A page (Record visit while recording) may block leaving; it restores the URL itself.
+      if (!navigationAllowed(window.location.hash)) return;
       const next = parseHash(window.location.hash);
       setRoute((prev) => {
         if (routeKey(prev) !== routeKey(next)) {
@@ -219,6 +223,7 @@ function AppInner() {
                     {route.name === "template" && <TemplateEditor templateId={route.id} />}
                     {route.name === "runs" && <Runs />}
                     {route.name === "run" && <RunDetail runId={route.runId} />}
+                    {route.name === "visit" && <RecordVisit visitId={route.id} />}
                   </Suspense>
                 </motion.div>
               </AnimatePresence>

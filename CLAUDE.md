@@ -2,7 +2,7 @@
 
 Turns evidence from a field visit (transcript) into a session note, progress record, plan coverage, checks, time summary and a draft invoice. **AI proposes → evidence supports → rules validate → a human approves.** Nothing is billed or sent: email is draft-only, the user presses Send.
 
-Demo with synthetic data only (client `C-104`, provider `provider_demo_001`). The live Vexo connection is out of scope here; it will come from a separate MCP server.
+Demo with synthetic data only (client `C-104`, provider `provider_demo_001`). Evidence comes from fixtures, or from a **Vexo Open band** recording (Bluetooth wristband mic → Deepgram, or a simulated transcript in dev). The iPhone bridge is GlassCam (`~/Desktop/megent`, a separate project).
 
 ## Stack
 One Cloudflare Worker: Hono API, cron, queue consumer and `SessionWorkflow`, with D1 and static assets. React 18 + Vite SPA (hash routes, framer-motion, lucide-react). zod contracts. vitest + Miniflare D1. pdf-lib. wrangler 4.86. npm.
@@ -34,10 +34,11 @@ Dev login: `demo.provider@example.invalid` (an empty DB auto-seeds). Review → 
 | Documents (one DocModel → HTML preview + PDF) | `src/documents/`, `src/services/documents/` |
 | Cloud (Drive/OneDrive, Gmail/Outlook drafts) | `src/connections/`, `src/integrations/cloud/`, `src/services/delivery/` |
 | Clients + rates, run history | `src/clients/`, `src/history/` |
+| Band visits (Vexo band → transcript → evidence) | `src/band/`, `src/api/visits.ts`, UI `#/visit`; protocol in `docs/band-bridge.md` |
 | UI | `src/ui/` (`pages/`, `components/`, `design/`, `api.ts`) |
 | Tests | `src/**/*.test.ts`, `tests/integration/`, harnesses in `tests/e2e/` |
 
-More detail: `docs/architecture.md` · run/deploy: `docs/runbook.md` · OAuth/AI keys: `docs/integrations.md` · demo script: `docs/demo.md` · security: `docs/security-review.md` · original spec: `astro_handoff.md`.
+More detail: `docs/architecture.md` · band/bridge: `docs/band-bridge.md` · run/deploy: `docs/runbook.md` · OAuth/AI keys: `docs/integrations.md` · demo script: `docs/demo.md` · security: `docs/security-review.md` · original spec: `astro_handoff.md`.
 
 ## Invariants (don't break)
 - **Server is authoritative.** Amounts, rates and blockers are computed server-side. Request bodies are `.strict()` and never carry provider ids or amounts.
