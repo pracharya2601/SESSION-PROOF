@@ -30,9 +30,10 @@ node scripts/e2e/demo.mjs              # optional dry-run on a SEPARATE fresh st
 
 Known prerequisites / limitations (see docs/test-report.md):
 
-- **Bootstrap**: `POST /auth/dev-login` only accepts an already-seeded identity, and `POST /api/dev/seed`
-  requires a login. On an empty D1 neither works over HTTP (QA-02a, owners 15/19). Until fixed, the demo
-  provider must be created out-of-band before the UI login works.
+- **Bootstrap**: on an empty D1, `POST /auth/dev-login` (dev auth, local runtime, loopback only) seeds the
+  synthetic data once and then logs in, so the UI login works on a fresh database (QA-02a, verified).
+- **Cron locally**: `wrangler dev` does not fire crons; `curl /cdn-cgi/handler/scheduled` returned 500
+  `exception` in our run (QA-35, open). Use **Sync** in the UI — it runs the same discovery + dispatch.
 - **Clock**: `wrangler dev` uses the system clock (`src/index.ts`), not `FIXTURE_CLOCK_NOW`. Discovery only
   finds the 2026-11-13 appointment while the host clock is after 19:00Z that day and within the 7-day
   lookback (until ~2026-11-20). Outside that window sync finds nothing (owner 01/05).
