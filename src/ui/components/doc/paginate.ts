@@ -8,6 +8,8 @@ export interface BlockMeasure {
   /** Splittable blocks: per-row / per-item heights. */
   parts: number[] | null;
   heading: boolean;
+  /** Forced page break before the next block. */
+  brk?: boolean;
 }
 
 export interface Measure {
@@ -35,6 +37,10 @@ export function paginate(m: Measure): Fragment[][] {
 
   for (let i = 0; i < m.blocks.length; i++) {
     const b = m.blocks[i]!;
+    if (b.brk) {
+      if (cur().length) newPage();
+      continue;
+    }
     if (b.heading) {
       const nb = m.blocks[i + 1];
       const nextMin = nb ? (nb.parts && nb.parts.length ? nb.base + nb.parts[0]! : Math.min(nb.h, m.rest * 0.5)) : 0;

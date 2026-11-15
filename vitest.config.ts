@@ -10,7 +10,7 @@ export default defineConfig({
     },
   },
   test: {
-    include: ["src/**/*.test.ts", "tests/**/*.test.ts", "fixtures/**/*.test.ts"],
+    include: ["src/**/*.test.ts", "tests/**/*.test.ts", "fixtures/**/*.test.ts", "evals/**/*.test.ts"],
     environment: "node",
     testTimeout: 20000,
     passWithNoTests: true,

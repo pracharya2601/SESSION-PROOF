@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { AlertOctagon, CheckCircle2, Info, ShieldCheck } from "lucide-react";
 import type { DocumentationChecks, DocumentationIssue } from "../../../contracts";
 import { Section } from "./Section";
+import { SessionChecklist } from "./SessionChecklist";
 import { rvSpring, useMotionOK } from "./motion";
 
 const keyOf = (i: DocumentationIssue) => `${i.code}:${i.field}`;
@@ -111,6 +112,12 @@ export function ChecksPanel(props: { checks: DocumentationChecks; revision: numb
               </li>
             ))}
           </ul>
+        </>
+      )}
+      {props.checks.checklist && (
+        <>
+          <h3 className="rv-info-h">Session checklist</h3>
+          <SessionChecklist checklist={props.checks.checklist} />
         </>
       )}
     </Section>

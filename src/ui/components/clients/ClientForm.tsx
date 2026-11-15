@@ -138,8 +138,20 @@ export function FundingTab({ draft, patch, errors }: { draft: ClientDraft; patch
         <Field label="Authorization #" error={errors.authorizationNumber}>
           <Input value={draft.authorizationNumber} className="mono" onChange={(e) => patch({ authorizationNumber: e.target.value })} />
         </Field>
-        <Field label="Fiscal intermediary" error={errors.fiscalIntermediary}>
+        <Field label="FMS (bill payer)" hint="Financial Management Services name — the invoice is billed to it." error={errors.fiscalIntermediary}>
           <Input value={draft.fiscalIntermediary} onChange={(e) => patch({ fiscalIntermediary: e.target.value })} />
+        </Field>
+        <Field label="FMS billing address" hint="Printed under Bill to." error={errors.fmsAddress}>
+          <Textarea rows={2} value={draft.fmsAddress} maxLength={300} onChange={(e) => patch({ fmsAddress: e.target.value })} />
+        </Field>
+        <Field label="UCI #" hint="Regional Center Unique Client Identifier." error={errors.uciNumber}>
+          <Input value={draft.uciNumber} className="mono" maxLength={20} onChange={(e) => patch({ uciNumber: e.target.value })} />
+        </Field>
+        <Field label="Authorization # override" hint="Leave empty to use the spending plan authorization from Drive." error={errors.authorizationOverride}>
+          <Input value={draft.authorizationOverride} className="mono" maxLength={80} onChange={(e) => patch({ authorizationOverride: e.target.value })} />
+        </Field>
+        <Field label="Authorized representative" hint="Optional. Signs invoices on the participant's behalf." error={errors.representativeName}>
+          <Input value={draft.representativeName} maxLength={120} onChange={(e) => patch({ representativeName: e.target.value })} />
         </Field>
         <Field label="Authorized hours" hint="For the current authorization period (informational)." error={errors.authorizedHours}>
           <Input value={draft.authorizedHours} inputMode="decimal" placeholder="e.g. 40" onChange={(e) => patch({ authorizedHours: e.target.value })} />

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseHash, routeKey } from "./routes";
+import { navKeyOf, parseHash, routeKey } from "./routes";
 import { backoffDelay, HEALTH_BACKOFF_MS } from "./ServerBanner";
 
 describe("parseHash edge cases", () => {
@@ -12,10 +12,14 @@ describe("parseHash edge cases", () => {
     ["#/runs/", "runs"],
     ["#/connections?connected=google", "connections"],
     ["#/sessions/%E0%A4%A", "today"], // malformed escape
+    ["#/recordings", "recordings"],
+    ["#/recordings/rec_1", "recording"],
   ])("%s -> %s", (hash, name) => expect(parseHash(hash).name).toBe(name));
 
   it("decodes detail ids", () => {
     expect(routeKey(parseHash("#/sessions/s%201"))).toBe("session:s 1");
+    expect(routeKey(parseHash("#/recordings/rec_a%3Ab"))).toBe("recording:rec_a:b");
+    expect(navKeyOf(parseHash("#/recordings/rec_a"))).toBe("recordings");
   });
 });
 

@@ -3,7 +3,7 @@ import { motion, useReducedMotion } from "framer-motion";
 import { Activity, ChevronRight, RefreshCw, Workflow } from "lucide-react";
 import type { RunSummary } from "../../contracts";
 import { api } from "../api";
-import { Button, EmptyState, ErrorNotice, PageHeader, Skeleton, fadeOnly, fadeUp, stagger } from "../design";
+import { Button, EmptyState, ErrorNotice, PageHeader, Skeleton, Switch, fadeOnly, fadeUp, stagger } from "../design";
 import { ModelChip, RunStatusIcon, Segmented, type SegOption } from "../components/runs/RunBits";
 import {
   absoluteTime,
@@ -39,15 +39,15 @@ function mergeFirstPage(prev: RunSummary[], first: RunSummary[]): RunSummary[] {
  * One list item. Memoized, and only active runs get the per-second clock: finished rows get a
  * 30 s clock, so a 1 s tick re-renders (and layout-measures) only the rows that are moving.
  */
-const RunItem = memo(function RunItem({ run, now, variants, layout }: { run: RunSummary; now: number; variants: typeof fadeUp; layout: boolean }) {
+const RunItem = memo(function RunItem({ run, now, variants, layout, archived }: { run: RunSummary; now: number; variants: typeof fadeUp; layout: boolean; archived: boolean }) {
   return (
     <motion.li variants={variants} layout={layout ? "position" : undefined}>
-      <RunRow run={run} now={now} />
+      <RunRow run={run} now={now} archived={archived} />
     </motion.li>
   );
 });
 
-function RunRow({ run, now }: { run: RunSummary; now: number }) {
+function RunRow({ run, now, archived }: { run: RunSummary; now: number; archived: boolean }) {
   return (
     <a className={`rn-row rn-row-${run.status}`} href={runHref(run.runId)}>
       <RunStatusIcon status={run.status} />
@@ -55,6 +55,7 @@ function RunRow({ run, now }: { run: RunSummary; now: number }) {
         <div className="rn-row-title">
           <span className="rn-row-client">{run.clientRef ?? "Unknown client"}</span>
           <span className={`rn-chip rn-chip-kind rn-kind-${run.runKind}`}>{kindLabel(run.runKind)}</span>
+          {archived && <span className="rn-chip">Archived</span>}
         </div>
         <div className="rn-row-sub">
           <span className="rn-row-stage">{stageLabel(run.currentStage)}</span>
@@ -85,6 +86,9 @@ export default function Runs() {
   const [error, setError] = useState<unknown>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
+  /** Archived run ids and archived session ids (only loaded while Show archived is on). */
+  const [archivedIds, setArchivedIds] = useState<{ runs: Set<string>; sessions: Set<string> }>({ runs: new Set(), sessions: new Set() });
   const token = useRef(0);
 
   const status = filter === "all" ? undefined : filter;
@@ -93,8 +97,17 @@ export default function Runs() {
     async (mode: "replace" | "merge") => {
       const t = token.current;
       try {
-        const res = await api.listRuns(status ? { status } : {});
+        const [res, arch] = await Promise.all([
+          api.listRuns({ ...(status ? { status } : {}), ...(showArchived ? { includeArchived: true } : {}) }),
+          showArchived
+            ? Promise.all([api.listArchived("run"), api.listArchived("session")]).then(([r, s]) => ({
+                runs: new Set(r.items.map((i) => i.id)),
+                sessions: new Set(s.items.map((i) => i.id)),
+              }))
+            : Promise.resolve({ runs: new Set<string>(), sessions: new Set<string>() }),
+        ]);
         if (t !== token.current) return;
+        setArchivedIds(arch);
         setRuns((prev) => (mode === "merge" && prev ? mergeFirstPage(prev, res.runs) : res.runs));
         if (mode === "replace") setCursor(res.nextCursor);
         setError(null);
@@ -102,7 +115,7 @@ export default function Runs() {
         if (t === token.current) setError(e);
       }
     },
-    [status],
+    [status, showArchived],
   );
 
   useEffect(() => {
@@ -123,7 +136,7 @@ export default function Runs() {
     const t = token.current;
     setLoadingMore(true);
     try {
-      const res = await api.listRuns(status ? { status, cursor } : { cursor });
+      const res = await api.listRuns({ ...(status ? { status } : {}), cursor, ...(showArchived ? { includeArchived: true } : {}) });
       if (t !== token.current) return;
       setRuns((prev) => {
         const base = prev ?? [];
@@ -176,6 +189,7 @@ export default function Runs() {
 
       <div className="rn-toolbar">
         <Segmented aria-label="Filter runs by status" options={options} value={filter} onChange={setFilter} />
+        <Switch checked={showArchived} onChange={setShowArchived} label="Show archived" />
       </div>
 
       {error !== null && <ErrorNotice error={error} onRetry={() => void loadFirst(runs ? "merge" : "replace")} />}
@@ -207,7 +221,14 @@ export default function Runs() {
         <>
           <motion.ul key={filter} className="rn-list" variants={stagger} initial="hidden" animate="show" aria-label="Runs">
               {runs.map((r) => (
-                <RunItem key={r.runId} run={r} now={isActive(r) ? now : coarseNow} variants={item} layout={!reduce} />
+                <RunItem
+                  key={r.runId}
+                  run={r}
+                  now={isActive(r) ? now : coarseNow}
+                  variants={item}
+                  layout={!reduce}
+                  archived={archivedIds.runs.has(r.runId) || archivedIds.sessions.has(r.sessionId)}
+                />
               ))}
           </motion.ul>
           {cursor && (

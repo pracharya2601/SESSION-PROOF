@@ -63,7 +63,7 @@ export function PhoneHandoff({
   useEffect(() => () => onActiveChange(false), [onActiveChange]);
 
   const visit = detail?.visit ?? started?.visit ?? null;
-  const link = started ? glasscamLink({ streamUrl: started.streamUrl, bandNumber: started.visit.bandNumber, clientRef: started.visit.clientRef }) : null;
+  const link = started ? glasscamLink({ streamUrl: started.streamUrl, streamToken: started.streamToken, bandNumber: started.visit.bandNumber, clientRef: started.visit.clientRef }) : null;
   const loopback = started ? streamHostIsLoopback(started.streamUrl) : false;
 
   // QR code of the deep link (rendered locally; the link never leaves this page).

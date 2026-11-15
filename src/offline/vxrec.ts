@@ -11,6 +11,7 @@ import {
   VXREC_MAX_PACKET_BYTES,
   VxrecHeader,
 } from "../contracts/offline";
+import { z } from "zod";
 import { DEFAULT_PACKET_SAMPLES_48K, opusPacketSamples48k } from "./ogg";
 
 export type VxrecErrorCode =
@@ -43,8 +44,16 @@ export interface VxrecRunData {
   packets: VxrecPacket[];
 }
 
+/**
+ * Header of a file for a client-less RECORDING (docs/recordings.md): the visit header without
+ * clientRef (optional and ignored when present). The visit header (frozen) is unchanged.
+ */
+export const RecordingVxrecHeader = VxrecHeader.omit({ clientRef: true }).extend({ clientRef: z.string().max(64).optional() });
+export type RecordingVxrecHeader = z.infer<typeof RecordingVxrecHeader>;
+
 export interface ParsedVxrec {
-  header: VxrecHeader;
+  /** clientRef is always present for kind "visit" (the default). */
+  header: RecordingVxrecHeader;
   /** Only runs that have at least one packet, in file order. */
   runs: VxrecRunData[];
   packetCount: number;
@@ -55,7 +64,7 @@ export interface ParsedVxrec {
 const MAGIC = new TextEncoder().encode(VXREC_MAGIC);
 
 /** Parses a whole VXREC1 file. Packet bytes are subarrays of `bytes` (no copy). Throws VxrecError. */
-export function parseVxrec(bytes: Uint8Array, opts: { maxPackets?: number } = {}): ParsedVxrec {
+export function parseVxrec(bytes: Uint8Array, opts: { maxPackets?: number; kind?: "visit" | "recording" } = {}): ParsedVxrec {
   const maxPackets = opts.maxPackets ?? MAX_OFFLINE_PACKETS;
   if (bytes.length < MAGIC.length || MAGIC.some((b, i) => bytes[i] !== b)) {
     throw new VxrecError("BAD_MAGIC", 'Not a VXREC1 file (expected "VXREC1\\n").');
@@ -75,7 +84,7 @@ export function parseVxrec(bytes: Uint8Array, opts: { maxPackets?: number } = {}
   } catch {
     throw new VxrecError("BAD_HEADER", "Header is not valid UTF-8 JSON.");
   }
-  const h = VxrecHeader.safeParse(json);
+  const h = (opts.kind === "recording" ? RecordingVxrecHeader : VxrecHeader).safeParse(json);
   if (!h.success) {
     throw new VxrecError("BAD_HEADER", `Header invalid: ${h.error.issues.map((i) => `${i.path.join(".") || "header"}: ${i.message}`).join("; ").slice(0, 300)}`);
   }

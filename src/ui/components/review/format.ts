@@ -27,7 +27,7 @@ export function formatCents(cents: number | null | undefined): string {
 export function originLabel(origin: DocumentLine["origin"]): { label: string; cls: string } {
   switch (origin) {
     case "provider_attestation":
-      return { label: "Provider confirmed", cls: "rv-tag-provider" };
+      return { label: "Provider-confirmed (not evidence)", cls: "rv-tag-provider" };
     case "extracted":
       return { label: "From evidence", cls: "rv-tag-evidence" };
     case "system_notice":

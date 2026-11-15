@@ -92,11 +92,89 @@ export const RateRule = z.object({
   hourlyRateCents: z.number().int().nonnegative().max(10_000_000),
   /** Declared maximum confirmed duration (minutes). */
   maxMinutes: z.number().int().positive().max(24 * 60),
+  /**
+   * v4 (optional): how confirmed minutes become billed minutes. Default "exact" (no rounding).
+   * Payer/FMS-specific; never inferred. nearest_15 = round to the nearest quarter hour (8-minute rule).
+   */
+  minuteRounding: z.enum(["exact", "nearest_15", "floor_15", "ceil_15"]).optional(),
 });
 export type RateRule = z.infer<typeof RateRule>;
+export type MinuteRounding = NonNullable<RateRule["minuteRounding"]>;
+
+/**
+ * v4 (optional): calendar + Drive + recording context frozen into the draft. Configuration and
+ * provenance only — never evidence of what happened in the session. Document TEXT (previous notes)
+ * is never stored here; only ids/names/kinds of the Drive documents that were consulted.
+ */
+export const SessionContextSnapshot = z.object({
+  drive: z
+    .object({
+      clientRef: Id,
+      folder: z.string().max(300),
+      serviceCode: Id,
+      authorization: z
+        .object({
+          number: z.string().max(64),
+          fundingSource: z.string().max(120),
+          hourlyRateCents: z.number().int().nonnegative(),
+          authorizedMinutesPerMonth: z.number().int().nonnegative().nullable(),
+          validFrom: z.string().max(10),
+          validTo: z.string().max(10),
+        })
+        .nullable(),
+      goalIds: z.array(Id).max(20),
+      documents: z
+        .array(
+          z.object({
+            id: Id,
+            name: z.string().max(200),
+            kind: z.enum(["service_plan", "authorization", "previous_note", "assessment", "other"]),
+            modifiedAt: Instant,
+            /** How the drafter used it: goals/authorization are configuration; everything else is context only. */
+            usedAs: z.enum(["goals", "authorization", "context_only"]),
+          }),
+        )
+        .max(50),
+    })
+    .nullable(),
+  /** Location of service from the calendar event (EVV element 4). */
+  location: z.string().max(200).nullable(),
+  /** Worker who provided the service (EVV element 5). Defaults to the appointment's provider id. */
+  workerId: Id.nullable(),
+  /** Recording consent as stored by the recording side; null = not stored. */
+  consent: z
+    .object({ recordedAt: Instant, method: z.string().max(64), confirmedBy: z.string().max(128).nullable() })
+    .nullable(),
+  /** This session's recorded span (clipped to the session), when the recording side knows it. */
+  recordingSpan: z.object({ from: Instant, to: Instant }).nullable(),
+  /** Minutes already billed/used under the authorization this month BEFORE this session; null = unknown. */
+  minutesUsedThisMonth: z.number().int().nonnegative().nullable(),
+  rateSource: z.enum(["drive_authorization", "client", "service_config"]),
+  serviceCodeSource: z.enum(["drive", "calendar"]),
+  /** Non-fatal context problems (e.g. "Drive context unavailable"). Codes/short text only. */
+  warnings: z.array(ShortText).max(20),
+  /** What kind of conversation the recording side thinks this was (content check); absent = not assessed. */
+  conversation: z
+    .object({
+      type: z.enum(["client_session", "colleague_meeting", "guardian_or_family", "phone_call", "personal", "unclear"]),
+      label: z.string().max(60),
+      confidence: z.number().min(0).max(1),
+      needsConfirmation: z.boolean(),
+      decision: z.enum(["client_session", "dismissed"]).nullable(),
+    })
+    .nullable()
+    .optional(),
+});
+export type SessionContextSnapshot = z.infer<typeof SessionContextSnapshot>;
 
 /** Frozen per-bundle configuration snapshot. */
-export const ServiceConfig = z.object({ plan: Plan, rules: RuleSet, rate: RateRule });
+export const ServiceConfig = z.object({
+  plan: Plan,
+  rules: RuleSet,
+  rate: RateRule,
+  /** v4 (optional): calendar/Drive/recording context frozen at draft time. */
+  context: SessionContextSnapshot.optional(),
+});
 export type ServiceConfig = z.infer<typeof ServiceConfig>;
 
 // ---------------------------------------------------------------- evidence
@@ -177,6 +255,8 @@ export const ProviderAttestation = z.object({
     "amendment_reason",
     "goal_addressed",
     "activity_summary",
+    /** v4: the provider removed one extracted claim. text = "<claimId>\n<reason>" (see claimRejectionText). */
+    "claim_rejected",
   ]),
   text: ShortText,
   actorProviderId: Id,
@@ -184,6 +264,18 @@ export const ProviderAttestation = z.object({
   bundleRevision: z.number().int().positive(),
 });
 export type ProviderAttestation = z.infer<typeof ProviderAttestation>;
+
+/** Attestation text for a claim_rejected attestation: first line = claim id, rest = reason. */
+export function claimRejectionText(claimId: string, reason: string): string {
+  return `${claimId}\n${reason}`.slice(0, 2000);
+}
+/** Parses a claim_rejected attestation; null when it is not one or is malformed. */
+export function parseClaimRejection(a: Pick<ProviderAttestation, "field" | "text">): { claimId: string; reason: string } | null {
+  if (a.field !== "claim_rejected") return null;
+  const i = a.text.indexOf("\n");
+  if (i <= 0) return null;
+  return { claimId: a.text.slice(0, i), reason: a.text.slice(i + 1).trim() };
+}
 
 // ---------------------------------------------------------------- documents
 /** One rendered line with provenance back to claims/evidence/attestations. */
@@ -252,12 +344,126 @@ export const DocumentationIssue = z.object({
 });
 export type DocumentationIssue = z.infer<typeof DocumentationIssue>;
 
+// ---------------------------------------------------------------- checklist (v4)
+export const ChecklistStatus = z.enum(["pass", "warn", "fail"]);
+export type ChecklistStatus = z.infer<typeof ChecklistStatus>;
+
+export const ChecklistGroup = z.enum(["invoice_minimums", "documentation", "consent", "evv", "time"]);
+export type ChecklistGroup = z.infer<typeof ChecklistGroup>;
+
+export const CHECKLIST_GROUP_LABELS: Record<ChecklistGroup, string> = {
+  invoice_minimums: "DDS invoice minimums",
+  documentation: "Plan documentation",
+  consent: "Consent",
+  evv: "Electronic Visit Verification (EVV)",
+  time: "Time check",
+};
+
+export const ChecklistItem = z.object({
+  id: z.string().min(1).max(64),
+  group: ChecklistGroup,
+  label: z.string().max(200),
+  status: ChecklistStatus,
+  /** Value shown (e.g. "320", "$38.50/hr") or null when absent. Never transcript text. */
+  value: ShortText.nullable(),
+  detail: ShortText,
+  /** Where the value came from. provider_attestation = provider-confirmed (not evidence). */
+  source: z.enum(["calendar", "drive", "recording", "evidence", "provider_attestation", "configuration", "system"]).nullable(),
+  /** True when the same gap is a blocking documentation check (approval is blocked). */
+  blocksApproval: z.boolean(),
+});
+export type ChecklistItem = z.infer<typeof ChecklistItem>;
+
+export const SessionChecklist = z.object({
+  version: z.string().max(32),
+  /** SDP code resolved for the session (e.g. "320"); null when not a recognisable SDP code. */
+  sdpCode: z.string().max(16).nullable(),
+  evvRequired: z.boolean(),
+  items: z.array(ChecklistItem).max(100),
+  /** v4: claims the provider removed (struck through in review; excluded from note, invoice, coverage). */
+  rejectedClaims: z
+    .array(z.object({ claimId: Id, text: ShortText, reason: z.string().max(500), attestationId: Id }))
+    .max(50)
+    .optional(),
+  summary: z.object({
+    pass: z.number().int().nonnegative(),
+    warn: z.number().int().nonnegative(),
+    fail: z.number().int().nonnegative(),
+  }),
+});
+export type SessionChecklist = z.infer<typeof SessionChecklist>;
+
 export const DocumentationChecks = z.object({
   ruleVersion: Id,
   issues: z.array(DocumentationIssue),
   canApprove: z.boolean(),
+  /** v4 (optional): one structured checklist per session (invoice minimums, plan, consent, EVV, time). */
+  checklist: SessionChecklist.optional(),
 });
 export type DocumentationChecks = z.infer<typeof DocumentationChecks>;
+
+// ---------------------------------------------------------------- invoice (v4)
+export const InvoiceLine = z.object({
+  id: z.string().min(1).max(64),
+  /** YYYY-MM-DD in the appointment timezone. */
+  serviceDate: z.string().max(10),
+  /** SDP code (e.g. "320") or the appointment's service code when not an SDP code. */
+  serviceCode: z.string().max(128),
+  taskDescription: ShortText,
+  /** evidence = drafted from cited transcript segments; provider_attestation = provider-written (not evidence). */
+  source: z.enum(["evidence", "provider_attestation", "unallocated", "configuration"]),
+  claimIds: z.array(Id).max(50),
+  evidenceIds: z.array(Id).max(100),
+  goalId: Id.nullable(),
+  /** Estimate from segment timing (informational). */
+  estimatedMinutes: z.number().int().nonnegative(),
+  /** Share of the billed minutes (null until the provider confirms the duration). */
+  billedMinutes: z.number().int().nonnegative().nullable(),
+  hourlyRateCents: z.number().int().nonnegative(),
+  amountCents: z.number().int().nonnegative().nullable(),
+});
+export type InvoiceLine = z.infer<typeof InvoiceLine>;
+
+export const InvoiceDraft = z.object({
+  version: z.string().max(32),
+  currency: z.literal("USD"),
+  serviceDate: z.string().max(10),
+  /** Appointment service key (e.g. "CA-SDP-320"). */
+  serviceCode: Id,
+  sdpCode: z.string().max(16).nullable(),
+  serviceCodeSource: z.enum(["drive", "calendar"]),
+  hourlyRateCents: z.number().int().nonnegative(),
+  rateSource: z.enum(["drive_authorization", "client", "service_config"]),
+  rateVersion: Id,
+  authorization: z
+    .object({
+      number: z.string().max(64),
+      fundingSource: z.string().max(120),
+      validFrom: z.string().max(10),
+      validTo: z.string().max(10),
+      /** Whether the service date is inside [validFrom, validTo]; null when the dates are unreadable. */
+      serviceDateInRange: z.boolean().nullable(),
+      authorizedMinutesPerMonth: z.number().int().nonnegative().nullable(),
+      usedMinutesBeforeSession: z.number().int().nonnegative().nullable(),
+      /** authorized − used before − this session's billed minutes (may be negative = over). null if unknown. */
+      remainingMinutesAfterSession: z.number().int().nullable(),
+    })
+    .nullable(),
+  rounding: z.object({
+    rule: z.enum(["exact", "nearest_15", "floor_15", "ceil_15"]),
+    confirmedMinutes: z.number().int().positive().nullable(),
+    billedMinutes: z.number().int().nonnegative().nullable(),
+  }),
+  lines: z.array(InvoiceLine).max(50),
+  totalCents: z.number().int().nonnegative().nullable(),
+  isEstimate: z.boolean(),
+  /** DDS: "A statement that all services specified in the invoice have been provided to the participant." */
+  attestationStatement: ShortText,
+  /** The statement is a provider attestation (provider-confirmed, not evidence). */
+  attestationLabel: z.string().max(120),
+  notes: z.array(ShortText).max(20),
+});
+export type InvoiceDraft = z.infer<typeof InvoiceDraft>;
 
 // ---------------------------------------------------------------- billing
 export const BillingDraft = z.object({
@@ -271,8 +477,11 @@ export const BillingDraft = z.object({
   rateVersion: Id,
   rounding: z.literal("half_up_to_cent"),
   breakdown: z.string().max(500),
+  /** v4 (optional): per-task invoice draft built from the evidence-backed note. */
+  invoice: InvoiceDraft.optional(),
 });
 export type BillingDraft = z.infer<typeof BillingDraft>;
+
 
 // ---------------------------------------------------------------- bundle
 export const BundleProvenance = z.object({
@@ -289,6 +498,10 @@ export const BundleProvenance = z.object({
   /** v2: PII scrubbing applied before inference. Counts only — never the values. */
   privacy: z
     .object({ scrubbed: z.boolean(), findings: z.record(z.string(), z.number().int().nonnegative()) })
+    .optional(),
+  /** v4: who drafted the facts, in words a reviewer can read (e.g. "demo drafter (rule-based, not AI)"). */
+  drafter: z
+    .object({ kind: z.enum(["ai", "demo_rule_based", "fixture", "transcript_only"]), label: z.string().max(120) })
     .optional(),
 });
 export type BundleProvenance = z.infer<typeof BundleProvenance>;
@@ -337,6 +550,22 @@ export const ReviewEdits = z
       .optional(),
     /** The provider's own summary of the activities, recorded as provider-written. */
     activitySummary: z.string().trim().min(1).max(2000).optional(),
+    /**
+     * v4: extracted claims the provider removes, each with a reason. Replaces any earlier list
+     * ([] restores every claim). Claim ids must exist in the current bundle (else 422 UNKNOWN_CLAIM).
+     */
+    rejectedClaims: z
+      .array(
+        z
+          .object({
+            claimId: z.string().min(1).max(128).regex(/^[^\n\r]+$/, "claimId must be one line"),
+            reason: z.string().trim().min(3).max(500),
+          })
+          .strict(),
+      )
+      .max(50)
+      .refine((l) => new Set(l.map((r) => r.claimId)).size === l.length, { message: "rejectedClaims must not repeat a claim" })
+      .optional(),
   })
   .strict()
   .refine((e) => Object.values(e).some((v) => v !== undefined), {

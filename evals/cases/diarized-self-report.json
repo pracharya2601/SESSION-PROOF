@@ -1,0 +1,133 @@
+{
+  "id": "diarized-self-report",
+  "title": "Two-speaker diarized: self-report vs provider account",
+  "purpose": "Speaker 1 says 'I did it all by myself'; Speaker 0 says they did most of it. The draft must not record independence; dishes were only deferred.",
+  "tags": [
+    "diarized",
+    "speaker"
+  ],
+  "sdpCode": "320",
+  "client": {
+    "clientRef": "EV-DIAR-01",
+    "displayName": "Jo Evalbright (synthetic)",
+    "preferredName": "Jo"
+  },
+  "plan": {
+    "serviceCode": "CA-SDP-320",
+    "serviceDescription": "Community Living Supports: household routines (synthetic plan)",
+    "goals": [
+      {
+        "goalId": "goal_laundry",
+        "objective": "Complete a laundry cycle independently."
+      },
+      {
+        "goalId": "goal_dishes",
+        "objective": "Wash dishes after lunch."
+      }
+    ]
+  },
+  "transcript": [
+    {
+      "t": 2,
+      "d": 5,
+      "speaker": "Speaker 0",
+      "text": "Let's start the laundry, can you sort the darks from the lights?"
+    },
+    {
+      "t": 10,
+      "d": 5,
+      "speaker": "Speaker 1",
+      "text": "I sorted them, the jeans go with the darks."
+    },
+    {
+      "t": 18,
+      "d": 5,
+      "speaker": "Speaker 0",
+      "text": "I did most of the measuring and pressed start for you."
+    },
+    {
+      "t": 26,
+      "d": 5,
+      "speaker": "Speaker 1",
+      "text": "I did it all by myself."
+    },
+    {
+      "t": 34,
+      "d": 5,
+      "speaker": "Speaker 0",
+      "text": "You loaded the machine; I handled the detergent and the settings."
+    },
+    {
+      "t": 42,
+      "d": 5,
+      "speaker": "Speaker 1",
+      "text": "Can we skip the dishes today?"
+    },
+    {
+      "t": 50,
+      "d": 5,
+      "speaker": "Speaker 0",
+      "text": "Sure, we'll do the dishes next visit."
+    }
+  ],
+  "fake": {
+    "keywords": {
+      "goal_laundry": [
+        "laundry",
+        "machine",
+        "sorted"
+      ],
+      "goal_dishes": [
+        "dishes"
+      ]
+    },
+    "bad": [
+      {
+        "section": "goal:goal_laundry",
+        "text": "Completed the laundry cycle independently.",
+        "cite": [
+          "ev_004"
+        ],
+        "label": "speaker_misattribution"
+      },
+      {
+        "section": "goal:goal_dishes",
+        "text": "Washed the dishes after lunch.",
+        "cite": [
+          "ev_007"
+        ],
+        "label": "discussed_not_achieved"
+      }
+    ]
+  },
+  "expect": {
+    "mustAddress": [
+      "goal_laundry"
+    ],
+    "mustStayUnknown": [
+      "goal_dishes"
+    ],
+    "forbiddenClaims": [
+      {
+        "id": "laundry-independent",
+        "pattern": "^(?![^.]*\\b(not|n.t)\\b)[^.]*(by (him|her|them|my)sel(f|ves)|completed[^.\"]*independently|on (his|her|their) own|without help)",
+        "kind": "speaker_misattribution"
+      },
+      {
+        "id": "washed-dishes",
+        "pattern": "washed (the )?dishes",
+        "kind": "discussed_not_achieved"
+      }
+    ],
+    "requiredCitations": [
+      {
+        "target": "goal_laundry",
+        "anyOf": [
+          "ev_002",
+          "ev_005"
+        ]
+      }
+    ],
+    "approvableAfterDuration": false
+  }
+}

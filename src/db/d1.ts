@@ -46,6 +46,10 @@ import {
   TemplateSection,
   TemplateText,
   TemplateTheme,
+  EMPTY_PROVIDER_PROFILE,
+  InvoiceNumberRecord,
+  ProviderProfile,
+  ProviderProfileInput,
 } from "../contracts";
 import type {
   ApprovalWrite,
@@ -53,6 +57,7 @@ import type {
   PendingDelivery,
   Repository,
 } from "./repository";
+import { notArchivedSql } from "../archive";
 
 export const MAX_PAGE_SIZE = 50;
 export const BACKOFF_BASE_MS = 30_000;
@@ -297,6 +302,61 @@ function nullableNumber(v: unknown): number | null {
   return v === null || v === undefined ? null : Number(v);
 }
 
+const CLIENT_BILLING_KEYS = ["uciNumber", "fmsAddress", "authorizationOverride", "representativeName"] as const;
+const ClientBillingSchema = ClientInput.pick({ uciNumber: true, fmsAddress: true, authorizationOverride: true, representativeName: true });
+
+/** v5 client invoice details from clients.billing_json (absent/unreadable = no keys, as before v5). */
+function clientBilling(raw: unknown): Partial<Pick<ClientRecord, (typeof CLIENT_BILLING_KEYS)[number]>> {
+  if (typeof raw !== "string" || raw.length === 0) return {};
+  try {
+    const parsed = ClientBillingSchema.safeParse(JSON.parse(raw));
+    return parsed.success ? parsed.data : {};
+  } catch {
+    return {};
+  }
+}
+
+function clientBillingJson(input: ClientInput): string | null {
+  const picked: Record<string, string | null> = {};
+  for (const k of CLIENT_BILLING_KEYS) if (input[k] !== undefined) picked[k] = input[k] ?? null;
+  return Object.keys(picked).length ? JSON.stringify(picked) : null;
+}
+
+/** Profile JSON (no counters) → ProviderProfileInput with the stored counters. */
+function profileFromJson(json: unknown, prefix: unknown, next: unknown): ProviderProfileInput {
+  let raw: Record<string, unknown> = {};
+  try {
+    raw = typeof json === "string" ? (JSON.parse(json) as Record<string, unknown>) : {};
+  } catch {
+    raw = {};
+  }
+  const merged = {
+    ...EMPTY_PROVIDER_PROFILE,
+    ...raw,
+    invoicePrefix: typeof prefix === "string" ? prefix : typeof raw.invoicePrefix === "string" ? raw.invoicePrefix : EMPTY_PROVIDER_PROFILE.invoicePrefix,
+    nextInvoiceNumber: Number(next ?? 1) || 1,
+  };
+  const parsed = ProviderProfileInput.safeParse(merged);
+  return parsed.success ? parsed.data : { ...EMPTY_PROVIDER_PROFILE, invoicePrefix: merged.invoicePrefix, nextInvoiceNumber: merged.nextInvoiceNumber };
+}
+
+function profileJson(p: ProviderProfileInput): string {
+  const { invoicePrefix: _p, nextInvoiceNumber: _n, ...rest } = p;
+  return JSON.stringify(rest);
+}
+
+function rowToInvoiceNumber(r: Row): InvoiceNumberRecord {
+  return InvoiceNumberRecord.parse({
+    providerId: r.provider_id,
+    sessionId: r.session_id,
+    bundleRevision: Number(r.bundle_revision),
+    seq: Number(r.seq),
+    invoiceNumber: r.invoice_number,
+    profile: profileFromJson(r.profile_json, undefined, Number(r.seq) + 1),
+    assignedAt: r.assigned_at,
+  });
+}
+
 function rowToClient(r: Row): ClientRecord {
   return ClientRecord.parse({
     providerId: r.provider_id,
@@ -309,6 +369,7 @@ function rowToClient(r: Row): ClientRecord {
     fiscalIntermediary: r.fiscal_intermediary ?? null,
     authorizedHours: nullableNumber(r.authorized_hours),
     caseManager: r.case_manager ?? null,
+    ...clientBilling(r.billing_json),
     customFields: z.array(CustomField).parse(JSON.parse(String(r.custom_fields_json))),
     templates: ClientTemplatesSchema.parse(JSON.parse(String(r.templates_json))),
     notes: r.notes ?? null,
@@ -543,6 +604,7 @@ export function createRepository(db: D1Database): Repository {
           `SELECT * FROM appointments
            WHERE canceled = 0 AND end_ms <= ?1 AND end_ms >= ?2
              AND (?4 IS NULL OR provider_id = ?4)
+             AND NOT EXISTS (SELECT 1 FROM dismissed_events d WHERE d.provider_id = appointments.provider_id AND d.event_id = appointments.occurrence_id)
            ORDER BY end_ms ASC, id ASC LIMIT ?3`,
         )
         .bind(nowMs, nowMs - Math.max(0, lookbackMinutes) * 60_000, Math.max(0, Math.floor(limit)), providerId ?? null)
@@ -657,10 +719,13 @@ export function createRepository(db: D1Database): Repository {
           .prepare(
             `INSERT INTO sessions (id, provider_id, appointment_id, occurrence_id, status, processing_revision,
                current_bundle_revision, workflow_id, status_reason, created_at, updated_at)
-             VALUES (?, ?, ?, ?, 'WAITING_FOR_EVIDENCE', 0, 0, NULL, NULL, ?, ?)
+             VALUES (?, ?, ?, ?, 'WAITING_FOR_EVIDENCE',
+               COALESCE((SELECT d.last_processing_revision FROM dismissed_events d WHERE d.provider_id = ? AND d.event_id = ?), 0),
+               0, NULL, NULL, ?, ?)
              ON CONFLICT(provider_id, occurrence_id) DO NOTHING`,
           )
-          .bind(sessionId, a.providerId, a.id, a.occurrenceId, t, t),
+          // A session deleted earlier (dismissed_events) continues its processing revisions: workflow ids are never reused.
+          .bind(sessionId, a.providerId, a.id, a.occurrenceId, a.providerId, a.occurrenceId, t, t),
       ]);
       const r = await db
         .prepare(`SELECT ${SESSION_COLS} FROM sessions WHERE provider_id = ? AND occurrence_id = ?`)
@@ -680,7 +745,7 @@ export function createRepository(db: D1Database): Repository {
       return r ? rowToSession(r) : null;
     },
 
-    async listSessionsForProvider(providerId, limit, cursor) {
+    async listSessionsForProvider(providerId, limit, cursor, opts) {
       const pageSize = Math.min(Math.max(Math.floor(limit) || 1, 1), MAX_PAGE_SIZE);
       const c = cursor ? decodeCursor(cursor) : null;
       const sql = `
@@ -691,6 +756,7 @@ export function createRepository(db: D1Database): Repository {
         JOIN appointments a ON a.id = s.appointment_id
         LEFT JOIN bundles b ON b.session_id = s.id AND b.revision = s.current_bundle_revision
         WHERE s.provider_id = ? ${c ? "AND (a.start_ms < ? OR (a.start_ms = ? AND s.id < ?))" : ""}
+          ${opts?.includeArchived ? "" : `AND ${notArchivedSql("session", "s.id", "s.provider_id")}`}
         ORDER BY a.start_ms DESC, s.id DESC
         LIMIT ?`;
       const params: unknown[] = c ? [providerId, c.startMs, c.startMs, c.id, pageSize + 1] : [providerId, pageSize + 1];
@@ -984,6 +1050,8 @@ export function createRepository(db: D1Database): Repository {
         ["file_deliveries", "session_id"],
         ["client_snapshots", "session_id"],
         ["run_events", "session_id"],
+        // Numbers are never reused: the provider counter keeps growing, so a re-approval gets a new one.
+        ["invoice_numbers", "session_id"],
       ];
       // Keep the session row and its processing_revision: workflow instance ids
       // (session + processing revision) persist in the Workflows runtime, so the next
@@ -1230,6 +1298,98 @@ export function createRepository(db: D1Database): Repository {
       return r ? String(r.identity) : null;
     },
 
+    // ------------------------------------------------ business profile + invoice numbers (v5)
+    async getProviderProfile(providerId) {
+      const r = await db.prepare("SELECT * FROM provider_profiles WHERE provider_id = ?").bind(providerId).first<Row>();
+      if (!r) return null;
+      return ProviderProfile.parse({
+        ...profileFromJson(r.profile_json, r.invoice_prefix, r.next_invoice_number),
+        providerId,
+        updatedAt: r.updated_at ?? null,
+      });
+    },
+    async saveProviderProfile(providerId, inputIn, now) {
+      const input = ProviderProfileInput.parse(inputIn);
+      const t = iso(now);
+      // next_invoice_number never goes below the stored counter or past numbers already assigned.
+      await db
+        .prepare(
+          `INSERT INTO provider_profiles (provider_id, profile_json, invoice_prefix, next_invoice_number, updated_at)
+           VALUES (?1, ?2, ?3, MAX(?4, COALESCE((SELECT MAX(seq) + 1 FROM invoice_numbers WHERE provider_id = ?1), 1)), ?5)
+           ON CONFLICT(provider_id) DO UPDATE SET
+             profile_json = excluded.profile_json,
+             invoice_prefix = excluded.invoice_prefix,
+             next_invoice_number = MAX(provider_profiles.next_invoice_number, excluded.next_invoice_number),
+             updated_at = excluded.updated_at`,
+        )
+        .bind(providerId, profileJson(input), input.invoicePrefix, input.nextInvoiceNumber, t)
+        .run();
+      const saved = await repo.getProviderProfile(providerId);
+      if (!saved) throw new Error("provider profile save failed");
+      return saved;
+    },
+    async getInvoiceNumber(sessionId, bundleRevision) {
+      const r = await db
+        .prepare("SELECT * FROM invoice_numbers WHERE session_id = ? AND bundle_revision = ?")
+        .bind(sessionId, bundleRevision)
+        .first<Row>();
+      return r ? rowToInvoiceNumber(r) : null;
+    },
+    async ensureInvoiceNumber(providerId, sessionId, bundleRevision, now) {
+      const t = iso(now);
+      for (let attempt = 0; attempt < 8; attempt++) {
+        const existing = await repo.getInvoiceNumber(sessionId, bundleRevision);
+        if (existing) {
+          if (existing.providerId !== providerId) throw new Error("invoice number belongs to another provider");
+          return existing;
+        }
+        try {
+          // One transaction: take the provider's next number, record it, bump the counter.
+          await db.batch([
+            db
+              .prepare(
+                `INSERT OR IGNORE INTO provider_profiles (provider_id, profile_json, invoice_prefix, next_invoice_number, updated_at)
+                 VALUES (?, ?, ?, 1, ?)`,
+              )
+              .bind(providerId, profileJson(EMPTY_PROVIDER_PROFILE), EMPTY_PROVIDER_PROFILE.invoicePrefix, t),
+            db
+              .prepare(
+                `INSERT INTO invoice_numbers (provider_id, session_id, bundle_revision, seq, invoice_number, profile_json, assigned_at)
+                 SELECT p.provider_id, ?, ?, p.next_invoice_number,
+                        CASE WHEN p.invoice_prefix = '' THEN printf('%04d', p.next_invoice_number)
+                             ELSE p.invoice_prefix || '-' || printf('%04d', p.next_invoice_number) END,
+                        json_set(p.profile_json, '$.invoicePrefix', p.invoice_prefix), ?
+                 FROM provider_profiles p
+                 WHERE p.provider_id = ?
+                   AND NOT EXISTS (SELECT 1 FROM invoice_numbers i WHERE i.session_id = ? AND i.bundle_revision = ?)`,
+              )
+              .bind(sessionId, bundleRevision, t, providerId, sessionId, bundleRevision),
+            db
+              .prepare(
+                `UPDATE provider_profiles SET next_invoice_number = next_invoice_number + 1
+                 WHERE provider_id = ?
+                   AND EXISTS (SELECT 1 FROM invoice_numbers i WHERE i.provider_id = ? AND i.session_id = ? AND i.bundle_revision = ?
+                                 AND i.seq = provider_profiles.next_invoice_number)`,
+              )
+              .bind(providerId, providerId, sessionId, bundleRevision),
+          ]);
+        } catch (err) {
+          if (!isUniqueViolation(err)) throw err;
+          // Raced with another finalize (same revision → re-read) or the number text already
+          // exists under an old prefix: skip that number and try the next one.
+          if (!(await repo.getInvoiceNumber(sessionId, bundleRevision))) {
+            await db
+              .prepare("UPDATE provider_profiles SET next_invoice_number = next_invoice_number + 1, updated_at = ? WHERE provider_id = ?")
+              .bind(t, providerId)
+              .run();
+          }
+        }
+      }
+      const final = await repo.getInvoiceNumber(sessionId, bundleRevision);
+      if (!final) throw new Error("invoice number assignment failed");
+      return final;
+    },
+
     // ------------------------------------------------ cloud connections
     async getConnection(providerId, provider) {
       const r = await db
@@ -1462,8 +1622,8 @@ export function createRepository(db: D1Database): Repository {
         .prepare(
           `INSERT INTO clients (provider_id, client_ref, display_name, preferred_name, hourly_rate_cents, funding_source,
              authorization_number, fiscal_intermediary, authorized_hours, case_manager, custom_fields_json, templates_json,
-             notes, active, rate_version, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+             notes, active, rate_version, created_at, updated_at, billing_json)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
            ON CONFLICT(provider_id, client_ref) DO UPDATE SET
              display_name = excluded.display_name,
              preferred_name = excluded.preferred_name,
@@ -1477,6 +1637,7 @@ export function createRepository(db: D1Database): Repository {
              templates_json = excluded.templates_json,
              notes = excluded.notes,
              active = excluded.active,
+             billing_json = excluded.billing_json,
              rate_version = CASE WHEN clients.hourly_rate_cents IS excluded.hourly_rate_cents
                                  THEN clients.rate_version ELSE clients.rate_version + 1 END,
              updated_at = excluded.updated_at
@@ -1499,6 +1660,7 @@ export function createRepository(db: D1Database): Repository {
           input.active ? 1 : 0,
           t,
           t,
+          clientBillingJson(input),
         )
         .first<Row>();
       if (r) return rowToClient(r);
@@ -1655,6 +1817,11 @@ export function createRepository(db: D1Database): Repository {
                  MAX(CASE WHEN status = 'succeeded' AND stage IN ('completed', 'delivery_drive', 'delivery_email') THEN at_ms END) AS success_ms
           FROM run_events
           WHERE provider_id = ? ${opts.sessionId ? "AND session_id = ?" : ""}
+            ${
+              opts.includeArchived
+                ? ""
+                : `AND ${notArchivedSql("run", "run_events.run_id", "run_events.provider_id")} AND ${notArchivedSql("session", "run_events.session_id", "run_events.provider_id")}`
+            }
           GROUP BY run_id
         ),
         latest AS (

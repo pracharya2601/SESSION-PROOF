@@ -1,0 +1,38 @@
+{
+  "id": "scn-320-participant-directed",
+  "title": "SDP 320 participant-directed errands",
+  "purpose": "Participant makes the choices; draft must not credit the provider.",
+  "tags": [
+    "scenario",
+    "sdp"
+  ],
+  "fromScenario": "participant-directed",
+  "sdpCode": "320",
+  "fake": {
+    "keywords": {
+      "goal_errand_planning": [
+        "errands",
+        "pharmacy",
+        "first"
+      ],
+      "goal_shopping": [
+        "paid",
+        "checkout"
+      ]
+    }
+  },
+  "expect": {
+    "mustAddress": [
+      "goal_errand_planning",
+      "goal_shopping"
+    ],
+    "forbiddenClaims": [
+      {
+        "id": "provider-chose",
+        "pattern": "provider (chose|decided|planned)",
+        "kind": "speaker_misattribution"
+      }
+    ],
+    "approvableAfterDuration": false
+  }
+}

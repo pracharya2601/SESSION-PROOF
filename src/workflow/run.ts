@@ -11,6 +11,8 @@
  *  - An event payload is a wake-up hint only; the durable approval row is truth.
  *  - A wait timeout never approves.
  */
+import { assignInvoiceNumber } from "../services/profile/index";
+import { CALENDAR_APPOINTMENT_PREFIX } from "../recordings/contract";
 import {
   APPROVAL_EVENT_TYPE,
   ApprovalNotification,
@@ -40,6 +42,7 @@ import type {
 import type { Repository } from "../db/repository";
 import { effectiveRate, snapshotClient } from "../clients/index";
 import { safeRecord } from "../history/index";
+import { applyDraftingContext, loadDraftingContext, planForSession, type DraftingResolvers } from "../drafting/context";
 
 export interface WorkflowDeps {
   repo: Repository;
@@ -58,6 +61,10 @@ export interface WorkflowDeps {
   resolveClient?: (appointment: Appointment) => Promise<ClientRecord | null>;
   /** Called once per processing revision when the draft is ready (review link + notifications). Failures are logged only. */
   onNeedsReview?: (sessionId: string) => Promise<unknown>;
+  /** v4: the client's Drive context (goals, authorization, previous notes as context only). Failures never fail the draft. */
+  resolveDriveContext?: DraftingResolvers["resolveDriveContext"];
+  /** v4: calendar/recording facts for the checklist (location, consent, recording span, minutes used this month). */
+  resolveVisitContext?: DraftingResolvers["resolveVisitContext"];
 }
 
 type RecordInput = Parameters<RunRecorder["record"]>[0];
@@ -324,6 +331,9 @@ export async function runSessionWorkflow(
  * session+revision). Throws on repo failure so the finalize step retries.
  */
 async function snapshotClientFor(deps: WorkflowDeps, sessionId: string, bundleRevision: number, emit: Emit): Promise<void> {
+  // Sequential invoice number (idempotent; normally already assigned at approval).
+  const session = await deps.repo.getSession(sessionId);
+  if (session) await assignInvoiceNumber(deps.repo, session.providerId, sessionId, bundleRevision, deps.clock.now());
   const existing = await deps.repo.getClientSnapshot(sessionId, bundleRevision);
   if (existing) {
     await emit("client_snapshot", "succeeded", "Client details frozen", {
@@ -442,9 +452,10 @@ async function prepareDraft(deps: WorkflowDeps, sessionId: string, rev: number, 
   );
   // Band-visit evidence is bound to its own visit by id, not by time: a band appointment has no
   // competitors, and it never competes for another appointment's time-window evidence.
-  const competing = appointment.id.startsWith(VISIT_APPOINTMENT_PREFIX)
-    ? []
-    : overlapping.filter((a) => a.id !== appointment.id && !a.id.startsWith(VISIT_APPOINTMENT_PREFIX));
+  // Same for calendar appointments (appt_cal_): the recording partitioner already bound each
+  // segment to exactly one event, so they neither have nor are competitors.
+  const bound = (id: string) => id.startsWith(VISIT_APPOINTMENT_PREFIX) || id.startsWith(CALENDAR_APPOINTMENT_PREFIX);
+  const competing = bound(appointment.id) ? [] : overlapping.filter((a) => a.id !== appointment.id && !bound(a.id));
   const match = deps.match(appointment, result, competing);
   const matchMeta = { outcome: match.outcome, matched: match.evidence.length, competing: competing.length };
   if (match.outcome === "ambiguous") {
@@ -458,11 +469,16 @@ async function prepareDraft(deps: WorkflowDeps, sessionId: string, rev: number, 
   await emit("match", "succeeded", `Matched ${match.evidence.length} evidence item(s)`, { meta: matchMeta });
   await repo.replaceEvidence(sessionId, rev, match.evidence);
 
+  // v4 drafting context (Drive goals/authorization + visit facts). Never evidence.
+  const drafting = await loadDraftingContext(appointment, deps);
+  const plan = planForSession(baseConfig.plan, drafting.drive);
+
   // extract
   await emit("extraction", "started", "Extracting facts", { meta: { extractionMode: deps.extractor.mode } });
   let extraction: ExtractionOutput;
   try {
-    extraction = await deps.extractor.extractFacts({ appointment, plan: baseConfig.plan, evidence: match.evidence });
+    const ctx = { appointment, plan, evidence: match.evidence, ...(drafting.drive ? { driveContext: drafting.drive } : {}) };
+    extraction = await deps.extractor.extractFacts(ctx);
   } catch (err) {
     if (err instanceof ExtractionRejectedError) {
       await emit("extraction", "failed", "Extraction rejected", { detail: err.reason });
@@ -487,8 +503,10 @@ async function prepareDraft(deps: WorkflowDeps, sessionId: string, rev: number, 
   const ext = extraction as typeof extraction & {
     aiProvider?: string;
     privacy?: { scrubbed: boolean; findings: Partial<Record<string, number>> };
+    drafter?: BundleProvenance["drafter"];
   };
   if (ext.aiProvider) provenance.aiProvider = ext.aiProvider;
+  if (ext.drafter) provenance.drafter = ext.drafter;
   if (ext.privacy) {
     const findings: Record<string, number> = {};
     for (const [k, v] of Object.entries(ext.privacy.findings)) if (typeof v === "number") findings[k] = v;
@@ -517,7 +535,8 @@ async function prepareDraft(deps: WorkflowDeps, sessionId: string, rev: number, 
 
   // v3: the client's rate is frozen into the draft bundle.
   const client = deps.resolveClient ? await deps.resolveClient(appointment) : null;
-  const config = { ...baseConfig, rate: effectiveRate(baseConfig.rate, client) };
+  const clientConfig = { ...baseConfig, rate: effectiveRate(baseConfig.rate, client) };
+  const config = deps.resolveDriveContext || deps.resolveVisitContext ? applyDraftingContext(clientConfig, appointment, drafting) : clientConfig;
   const now = clock.now();
   const bundle = deps.assemble({
     sessionId,

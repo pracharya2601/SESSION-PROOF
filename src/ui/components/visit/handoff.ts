@@ -4,12 +4,13 @@
  */
 
 /**
- * `glasscam://band-visit?stream=<encoded streamUrl>&band=<n>&client=<clientRef>`.
+ * `glasscam://band-visit?stream=<encoded streamUrl>&token=<encoded streamToken>&band=<n>&client=<clientRef>`.
  * Carries the client ref only (never a name). `band` is omitted when no number was given.
- * The link contains the stream token: it is a secret until the token expires.
+ * The stream URL has no token; the token is its own parameter, and the app sends it in
+ * `Sec-WebSocket-Protocol`, never in a URL it requests. The link is a secret until the token expires.
  */
-export function glasscamLink(args: { streamUrl: string; bandNumber: number | null; clientRef: string }): string {
-  const parts = [`stream=${encodeURIComponent(args.streamUrl)}`];
+export function glasscamLink(args: { streamUrl: string; streamToken: string; bandNumber: number | null; clientRef: string }): string {
+  const parts = [`stream=${encodeURIComponent(args.streamUrl)}`, `token=${encodeURIComponent(args.streamToken)}`];
   if (args.bandNumber !== null) parts.push(`band=${encodeURIComponent(String(args.bandNumber))}`);
   parts.push(`client=${encodeURIComponent(args.clientRef)}`);
   return `glasscam://band-visit?${parts.join("&")}`;

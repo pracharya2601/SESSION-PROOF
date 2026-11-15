@@ -65,20 +65,17 @@ function rate(rateVersion: string, hourlyRateCents: number, maxMinutes = 8 * 60)
 function client(clientRef: string, displayName: string, preferredName: string, program: string): ClientInput {
   return {
     clientRef,
-    displayName: `${displayName} (synthetic)`,
+    displayName, // fictional person (all fixture people are fictional)
     preferredName,
     hourlyRateCents: null, // agency rate from the scenario's service config applies
-    fundingSource: "Self-Determination Program budget (synthetic)",
+    fundingSource: "Regional Center — SDP spending plan",
     authorizationNumber: `AUTH-SYN-${clientRef}`,
-    fiscalIntermediary: "Example FMS (synthetic)",
+    fiscalIntermediary: "Example Fiscal Services",
     authorizedHours: 20,
-    caseManager: "Example Service Coordinator (synthetic)",
-    customFields: [
-      { label: "Program", value: program },
-      { label: "Data", value: "SYNTHETIC test data - not a real person" },
-    ],
+    caseManager: "Example Service Coordinator",
+    customFields: [{ label: "Program", value: program }],
     templates: { session_note: null, invoice: null, approval_record: null },
-    notes: "Synthetic band-scenario client. Not a real person.",
+    notes: "Band-scenario client (fictional person, test data).",
     active: true,
   };
 }
@@ -89,7 +86,7 @@ const SIMULATED = "Simulated transcript";
 const plan320A: Plan = {
   planVersion: "plan_sdp320_a_v1",
   serviceCode: "CA-SDP-320",
-  serviceDescription: "Community Living Supports: personal skill development for daily living (synthetic plan)",
+  serviceDescription: "Community Living Supports: personal skill development for daily living",
   goals: [
     { goalId: "goal_meal_planning", objective: "Plan and prepare a simple weekly meal with decreasing prompts." },
     { goalId: "goal_laundry", objective: "Complete a laundry cycle independently." },
@@ -103,7 +100,7 @@ const sdp320Normal: BandScenario = {
   purpose:
     "Baseline band visit coded CA-SDP 320: two speakers, complete audio, no progress statement in the transcript, so the draft is blocked on progress + duration until the provider review supplies both; then approve → COMPLETED.",
   serviceCode: CODE_320,
-  client: client("SD-320-A", "Robin Testwell", "Robin", "SDP 320 Community Living Supports"),
+  client: client("SD-320-A", "Robin Castillo", "Robin", "SDP 320 Community Living Supports"),
   plan: plan320A,
   rules: rules("rules_sdp320_a_v1", "CA-SDP-320"),
   rate: rate("rate_sdp320_a_v1", 3850), // $38.50/h synthetic
@@ -154,7 +151,7 @@ const sdp320Normal: BandScenario = {
 const plan334A: Plan = {
   planVersion: "plan_sdp334_a_v1",
   serviceCode: "CA-SDP-334",
-  serviceDescription: "Individual Training and Education: money-management skills course (synthetic plan)",
+  serviceDescription: "Individual Training and Education: money-management skills course",
   goals: [
     { goalId: "goal_budget_tracking", objective: "Track weekly spending in a simple budget sheet." },
     { goalId: "goal_bill_reading", objective: "Identify the amount due and due date on a bill." },
@@ -167,7 +164,7 @@ const sdp334Training: BandScenario = {
   purpose:
     "CA-SDP 334 visit where the provider states progress clearly in the transcript, so the fixture extraction has a supported progress claim and the ONLY blocker at r1 is the confirmed duration.",
   serviceCode: CODE_334,
-  client: client("SD-334-A", "Jordan Sampleton", "Jordan", "SDP 334 Individual Training and Education"),
+  client: client("SD-334-A", "Jordan Mendez", "Jordan", "SDP 334 Individual Training and Education"),
   plan: plan334A,
   rules: rules("rules_sdp334_a_v1", "CA-SDP-334"),
   rate: rate("rate_sdp334_a_v1", 5200), // $52.00/h synthetic
@@ -214,7 +211,7 @@ const sdp334Training: BandScenario = {
 const plan331A: Plan = {
   planVersion: "plan_sdp331_a_v1",
   serviceCode: "CA-SDP-331",
-  serviceDescription: "Community Integration Supports: participation in community activities of choice (synthetic plan)",
+  serviceDescription: "Community Integration Supports: participation in community activities of choice",
   goals: [
     { goalId: "goal_library_card", objective: "Use the public library independently, including checking out items." },
     { goalId: "goal_social_group", objective: "Join a community interest group of the participant's choice." },
@@ -227,7 +224,7 @@ const sdp331Community: BandScenario = {
   purpose:
     "CA-SDP 331 visit. OBSERVATION POINT: the SDP waiver estimates 331 per DAY, but our billing model is hourly only, so the synthetic config keeps an hourly rate and bills 120 confirmed minutes as 2 hours. Watch how the invoice presents a day-unit service.",
   serviceCode: CODE_331,
-  client: client("SD-331-A", "Casey Placeholder", "Casey", "SDP 331 Community Integration Supports"),
+  client: client("SD-331-A", "Casey Nguyen", "Casey", "SDP 331 Community Integration Supports"),
   plan: plan331A,
   rules: rules("rules_sdp331_a_v1", "CA-SDP-331"),
   rate: rate("rate_sdp331_a_v1", 4125), // $41.25/h synthetic (hourly stand-in for a day unit)
@@ -274,7 +271,7 @@ const sdp331Community: BandScenario = {
 const plan320B: Plan = {
   planVersion: "plan_sdp320_b_v1",
   serviceCode: "CA-SDP-320",
-  serviceDescription: "Community Living Supports: household routines (synthetic plan)",
+  serviceDescription: "Community Living Supports: household routines",
   goals: [
     { goalId: "goal_dishes", objective: "Wash and put away dishes after meals." },
     { goalId: "goal_recycling", objective: "Sort recycling on collection day." },
@@ -337,7 +334,7 @@ const lossyBluetooth: BandScenario = {
 const plan335A: Plan = {
   planVersion: "plan_sdp335_a_v1",
   serviceCode: "CA-SDP-335",
-  serviceDescription: "Employment Supports: job coaching at a community workplace (synthetic plan)",
+  serviceDescription: "Employment Supports: job coaching at a community workplace",
   goals: [
     { goalId: "goal_task_list", objective: "Follow the shift task list with fewer coach prompts." },
     { goalId: "goal_break_time", objective: "Return from breaks on time using a phone timer." },
@@ -350,7 +347,7 @@ const reconnectMidVisit: BandScenario = {
   purpose:
     "CA-SDP 335 job-coaching visit where the band reconnects at 50 s (seq restarts at 0, a new start is sent): the timeline has a gap but no packets are counted lost, so completeness stays complete; still NEEDS_REVIEW (duration only, progress is in the transcript).",
   serviceCode: CODE_335,
-  client: client("SD-335-A", "Morgan Fictive", "Morgan", "SDP 335 Employment Supports"),
+  client: client("SD-335-A", "Morgan Ellis", "Morgan", "SDP 335 Employment Supports"),
   plan: plan335A,
   rules: rules("rules_sdp335_a_v1", "CA-SDP-335"),
   rate: rate("rate_sdp335_a_v1", 4780), // $47.80/h synthetic
@@ -398,7 +395,7 @@ const reconnectMidVisit: BandScenario = {
 const plan320C: Plan = {
   planVersion: "plan_sdp320_c_v1",
   serviceCode: "CA-SDP-320",
-  serviceDescription: "Community Living Supports: participant-directed errands and routines (synthetic plan)",
+  serviceDescription: "Community Living Supports: participant-directed errands and routines",
   goals: [
     { goalId: "goal_errand_planning", objective: "Choose and plan the order of weekly errands." },
     { goalId: "goal_shopping", objective: "Pay at a store checkout independently." },
@@ -462,7 +459,7 @@ const participantDirected: BandScenario = {
 const plan334B: Plan = {
   planVersion: "plan_sdp334_b_v1",
   serviceCode: "CA-SDP-334",
-  serviceDescription: "Individual Training and Education: phone and email safety skills (synthetic plan)",
+  serviceDescription: "Individual Training and Education: phone and email safety skills",
   goals: [
     { goalId: "goal_contact_safety", objective: "Decide when it is safe to share personal contact details." },
     { goalId: "goal_email_basics", objective: "Send a short email to a trusted contact." },

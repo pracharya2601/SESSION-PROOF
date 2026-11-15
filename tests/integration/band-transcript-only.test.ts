@@ -158,7 +158,7 @@ describe("band visit, real transcript, no AI extraction", () => {
     expect(b2.documents.planCoverage.find((g: any) => g.goalId === goalId)).toMatchObject({ status: "addressed", support: "provider_confirmed" });
     const cov = b2.documents.sections.find((s: any) => s.key === "plan_coverage").lines.find((l: any) => l.text.startsWith(objective));
     expect(cov).toMatchObject({ origin: "provider_attestation", evidenceIds: [] });
-    expect(cov.text).toContain("Addressed (provider confirmed)");
+    expect(cov.text).toContain("Addressed (provider-confirmed, not evidence)");
 
     // ---- approve → COMPLETED, files
     hh.clock.advance(60_000);
@@ -180,9 +180,10 @@ describe("band visit, real transcript, no AI extraction", () => {
     const note = await hh.req(`/api/sessions/${sessionId}/documents/session_note`, { cookie });
     expect(note.status, note.text).toBe(200);
     const items = (note.json.data.blocks as any[]).flatMap((b) => (b.type === "list" ? b.items : []));
-    expect(items).toContainEqual({ text: `Goal addressed (provider confirmed): ${objective}`, tag: "Provider confirmed" });
-    expect(items).toContainEqual({ text: `Activity summary (provider written): ${summary}`, tag: "Provider written" });
+    expect(items).toContainEqual({ text: `Goal addressed: ${objective}`, tag: "Provider attestation" });
+    expect(items).toContainEqual({ text: summary, tag: "Provider attestation" });
     const table = (note.json.data.blocks as any[]).find((b) => b.type === "table");
-    expect(table.rows.find((r: string[]) => r[0] === goalId)[2]).toBe("Addressed (provider confirmed)");
+    expect(table.rows.find((r: string[]) => r[0] === objective)[1]).toBe("Addressed (provider attestation)");
+    void goalId;
   });
 });

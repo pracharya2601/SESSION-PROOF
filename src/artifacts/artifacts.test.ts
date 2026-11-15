@@ -69,9 +69,12 @@ describe("renderFilePdf", () => {
       const [page] = doc.getPages();
       expect(page?.getSize()).toEqual({ width: 612, height: 792 });
       const text = pdfText(bytes);
-      expect(text).toContain("VEXO FIELD ASSISTANT");
       expect(text).toMatch(/Page 1 of \d+/);
-      expect(text).toContain(FIXTURE_BANNER);
+      // Fixture provenance is disclosed on the approval record only.
+      if (kind === "approval_record") {
+        expect(text).toContain("VEXO FIELD ASSISTANT");
+        expect(text).toContain(FIXTURE_BANNER);
+      } else expect(text).not.toContain(FIXTURE_BANNER);
     });
   }
 
@@ -83,26 +86,23 @@ describe("renderFilePdf", () => {
 
   it("session note content: provider confirmed, coverage statuses, follow-ups, checks, time", async () => {
     const text = pdfText(await renderFilePdf("session_note", input));
-    expect(text).toContain("Provider confirmed");
+    expect(text).toContain("Provider attestation");
     expect(text).toContain("Addressed");
     expect(text).toContain("Partially addressed");
-    expect(text).toContain("Unknown — no supporting evidence");
-    expect(text).toContain("Recorded only — not sent");
-    expect(text).toContain("Documentation checks — not a compliance determination");
-    expect(text).toContain("Evidence window (informational)");
+    expect(text).toContain("Not addressed this visit");
+    expect(text).toContain("Follow-up / next visit");
     expect(text).toContain("10:00 AM – 11:00 AM PST");
-    expect(text).toContain("90 min (1 h 30 min) — provider confirmed");
+    expect(text).toContain("90 min (provider attestation)");
+    expect(text).not.toMatch(/ev_\d/);
   });
 
   it("invoice content: number, amount, draft notice, no tax", async () => {
     const text = pdfText(await renderFilePdf("invoice", input));
-    expect(text).toContain(invoiceNumber(final));
     expect(invoiceNumber(final)).toMatch(/^INV-[0-9A-F]{8}-R3$/);
     expect(text).toContain("$112.50");
     expect(text).toContain("$75.00");
-    expect(text).toContain("Draft invoice — no payment requested or submitted");
-    expect(text).toContain("rate_demo_v1");
-    expect(text).toContain("None applied.");
+    expect(text).toContain("INVOICE");
+    expect(text).not.toContain("rate_demo_v1");
   });
 
   it("approval record content incl. identity, fingerprint, attestations, provenance", async () => {
@@ -142,7 +142,7 @@ describe("renderFilePdf", () => {
     expect(n).toBeGreaterThan(3);
     const text = pdfText(bytes);
     for (let i = 1; i <= n; i++) expect(text).toContain(`Page ${i} of ${n}`);
-    expect(text.split(FIXTURE_BANNER).length - 1).toBeGreaterThanOrEqual(n);
+    expect(text).not.toContain(FIXTURE_BANNER);
   });
 
   it("treats <script> and unicode as plain text without throwing", async () => {

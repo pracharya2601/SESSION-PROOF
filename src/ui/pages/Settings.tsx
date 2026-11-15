@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { BellRing, Bot, HardDrive, Mail, RefreshCw, Smartphone } from "lucide-react";
+import { BellRing, Bot, Building2, HardDrive, Mail, RefreshCw, Smartphone } from "lucide-react";
 import type { Connection, SettingsBundle } from "../../contracts";
 import { api } from "../api";
 import { Button, Card, Dialog, ErrorNotice, PageHeader, Skeleton, TabPanel, Tabs, fadeOnly } from "../design";
@@ -10,10 +10,12 @@ import { StorageTab } from "../components/settings/StorageTab";
 import { SyncTab } from "../components/settings/SyncTab";
 import { DevicesSection } from "../components/settings/DevicesSection";
 import { NotificationsSection } from "../components/settings/NotificationsSection";
+import { BusinessProfileSection } from "../components/settings/BusinessProfileSection";
 import "../components/settings/u2.css";
 
-type TabKey = "sync" | "storage" | "email" | "ai" | "devices" | "notifications";
+type TabKey = "business" | "sync" | "storage" | "email" | "ai" | "devices" | "notifications";
 const TABS: { id: TabKey; label: string; icon: ReactNode }[] = [
+  { id: "business", label: "Business profile", icon: <Building2 size={15} /> },
   { id: "sync", label: "Sync", icon: <RefreshCw size={15} /> },
   { id: "storage", label: "Storage", icon: <HardDrive size={15} /> },
   { id: "email", label: "Email", icon: <Mail size={15} /> },
@@ -74,14 +76,14 @@ export default function Settings() {
     window.history.replaceState(null, "", `${base}?tab=${next}`);
   }
 
-  const needsBundle = tab !== "sync" && tab !== "devices" && tab !== "notifications";
+  const needsBundle = tab !== "sync" && tab !== "devices" && tab !== "notifications" && tab !== "business";
 
   return (
     <div className="u2-page">
       <PageHeader
         eyebrow="Workspace"
         title="Settings"
-        subtitle="Automatic sync, where your files go, email drafts, how AI sees your data, and your paired phones."
+        subtitle="Your business profile for invoices, automatic sync, where your files go, email drafts, how AI sees your data, and your paired phones."
       />
       <div className="u2-tabs-bar">
         <Tabs
@@ -113,6 +115,8 @@ export default function Settings() {
               <Card padding="lg" aria-busy="true">
                 <Skeleton lines={6} />
               </Card>
+            ) : tab === "business" ? (
+              <BusinessProfileSection onDirtyChange={onDirty} />
             ) : tab === "sync" ? (
               <SyncTab onDirtyChange={onDirty} />
             ) : tab === "devices" ? (

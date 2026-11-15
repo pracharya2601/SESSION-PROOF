@@ -32,6 +32,7 @@ import {
 } from "../review-links";
 import { apiError, log } from "../security/index";
 import { ServiceError, approveSession, saveReview } from "../services/approval/index";
+import { gateReviewBundle } from "../services/profile/index";
 import { loadDocModelInput } from "../services/documents/index";
 import type { Actor, ApiDeps, AppBindings } from "./deps";
 import { ok } from "./respond";
@@ -130,7 +131,7 @@ export function reviewLinkRoutes(deps: ApiDeps): Hono<AppBindings> {
         },
         idSuffix: `r${bundle.bundleRevision}`,
       });
-      return ok(c, bundle);
+      return ok(c, (await gateReviewBundle(deps.repo, link.providerId, bundle, true)) ?? bundle);
     }),
   );
 

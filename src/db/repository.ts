@@ -32,6 +32,9 @@ import type {
   RunSummary,
   TemplateInput,
   SupersededRevision,
+  InvoiceNumberRecord,
+  ProviderProfile,
+  ProviderProfileInput,
 } from "../contracts";
 
 /** v2 adds "file_delivery": an auto drive upload after completion (payload: { deliveryId }). */
@@ -96,7 +99,13 @@ export interface Repository {
   getSession(sessionId: string): Promise<SessionRecord | null>;
   /** Scoped read — returns null when the session is not the provider's. */
   getSessionForProvider(providerId: string, sessionId: string): Promise<SessionRecord | null>;
-  listSessionsForProvider(providerId: string, limit: number, cursor: string | null): Promise<{ sessions: SessionSummary[]; nextCursor: string | null }>;
+  /** Archived sessions (archived_items) are left out unless opts.includeArchived. */
+  listSessionsForProvider(
+    providerId: string,
+    limit: number,
+    cursor: string | null,
+    opts?: { includeArchived?: boolean },
+  ): Promise<{ sessions: SessionSummary[]; nextCursor: string | null }>;
   /** Conditional transition: only applies when current status ∈ from. */
   transitionSession(sessionId: string, from: SessionStatus[], to: SessionStatus, reason: string | null, now: Date): Promise<ConditionalResult<SessionRecord>>;
   /**
@@ -170,6 +179,19 @@ export interface Repository {
   /** Identity for a provider id (for email templates). */
   getProviderIdentity(providerId: string): Promise<string | null>;
 
+  // ---- v5: business profile + sequential invoice numbers
+  /** null = the provider never saved a profile (production default: empty). */
+  getProviderProfile(providerId: string): Promise<ProviderProfile | null>;
+  /** Upsert. nextInvoiceNumber never decreases and never drops to a number already assigned. */
+  saveProviderProfile(providerId: string, input: ProviderProfileInput, now: Date): Promise<ProviderProfile>;
+  /**
+   * Idempotent per (session, revision): returns the existing number, or atomically takes the
+   * provider's next number, freezes the current profile with it and bumps the counter. Numbers
+   * are unique per provider and never reused (safe under concurrent finalizes).
+   */
+  ensureInvoiceNumber(providerId: string, sessionId: string, bundleRevision: number, now: Date): Promise<InvoiceNumberRecord>;
+  getInvoiceNumber(sessionId: string, bundleRevision: number): Promise<InvoiceNumberRecord | null>;
+
   // ---- cloud connections (tokens stay encrypted; callers encrypt/decrypt)
   getConnection(providerId: string, provider: ConnectionProvider): Promise<StoredConnection | null>;
   listConnections(providerId: string): Promise<StoredConnection[]>;
@@ -223,7 +245,11 @@ export interface Repository {
   appendRunEvent(e: RunEvent): Promise<void>;
   listRunEvents(runId: string, providerId: string): Promise<RunEvent[]>;
   /** Runs aggregated from events, newest first; status filter optional; cursor pagination ≤50. */
-  listRuns(providerId: string, opts: { status?: RunSummary["status"]; sessionId?: string; limit: number; cursor: string | null }): Promise<{ runs: RunSummary[]; nextCursor: string | null }>;
+  /** Archived runs, and runs of archived sessions, are left out unless opts.includeArchived. */
+  listRuns(
+    providerId: string,
+    opts: { status?: RunSummary["status"]; sessionId?: string; limit: number; cursor: string | null; includeArchived?: boolean },
+  ): Promise<{ runs: RunSummary[]; nextCursor: string | null }>;
 
   // ================================================================ amendments
   /**

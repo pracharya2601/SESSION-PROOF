@@ -10,15 +10,15 @@ import type { Env } from "../../env";
 import { createAnthropicProvider } from "./anthropic";
 import { createGeminiProvider } from "./gemini";
 import { createMistralProvider } from "./mistral";
-import { createOpenAiProvider } from "./openai";
-import type { ProviderOptions } from "./http";
+import { createOpenAiProvider, isOpenAiReasoningModel } from "./openai";
+import { resolveProviderTimeoutMs, type ProviderOptions } from "./http";
 
 export { InferenceError } from "../../contracts/v2";
 export { createAnthropicProvider } from "./anthropic";
-export { createOpenAiProvider } from "./openai";
+export { createOpenAiProvider, isOpenAiReasoningModel } from "./openai";
 export { createGeminiProvider, toGeminiSchema } from "./gemini";
 export { createMistralProvider } from "./mistral";
-export { PROVIDER_TIMEOUT_MS, parseRetryAfter, type ProviderOptions } from "./http";
+export { PROVIDER_TIMEOUT_MS, REASONING_PROVIDER_TIMEOUT_MS, parseRetryAfter, resolveProviderTimeoutMs, type ProviderOptions } from "./http";
 
 const nonEmpty = (v: string | undefined): string | undefined => (v && v.trim() ? v : undefined);
 
@@ -42,6 +42,9 @@ export function createInferenceProvider(
 ): InferenceProvider {
   const apiKey = apiKeyFor(env, sel.provider);
   const model = sel.model;
+  const reasoning = sel.provider === "openai" && isOpenAiReasoningModel(model);
+  const timeoutEnv = (env as Env & { AI_TIMEOUT_MS?: string }).AI_TIMEOUT_MS;
+  opts = { ...opts, timeoutMs: opts?.timeoutMs ?? resolveProviderTimeoutMs(timeoutEnv, reasoning) };
   switch (sel.provider) {
     case "anthropic":
       return createAnthropicProvider({ apiKey, model, baseUrl: nonEmpty(env.AI_GATEWAY_URL) }, opts);

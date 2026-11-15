@@ -28,6 +28,8 @@ export interface OfflineRow {
   audioDeleteAfter: string | null;
   createdAt: string;
   updatedAt: string;
+  /** "visit": a band visit (visitId = band_visits.id). "recording": a client-less recording (visitId = recordings.id). */
+  target: "visit" | "recording";
 }
 
 function toRow(r: Row): OfflineRow {
@@ -50,6 +52,7 @@ function toRow(r: Row): OfflineRow {
     audioDeleteAfter: (r.audio_delete_after as string | null) ?? null,
     createdAt: String(r.created_at),
     updatedAt: String(r.updated_at),
+    target: r.target === "recording" ? "recording" : "visit",
   };
 }
 
@@ -67,9 +70,25 @@ export interface NewOfflineVisit {
   now: string;
 }
 
+export interface NewOfflineRecording {
+  recordingId: string;
+  providerId: string;
+  deviceId: string;
+  localId: string;
+  bandNumber: number | null;
+  transcriber: "deepgram" | "simulated";
+  recordedFrom: string;
+  recordedTo: string;
+  timezone: string | null;
+  consentConfirmedAt: string;
+  now: string;
+}
+
 export interface OfflineStore {
   /** Appointment (canceled) + stopped band visit + offline row, atomically. Throws on a (device, localId) clash. */
   create(v: NewOfflineVisit): Promise<OfflineRow>;
+  /** Stopped recording (origin offline, no client) + offline row (target recording), atomically. Throws on a (device, localId) clash. */
+  createForRecording(v: NewOfflineRecording): Promise<OfflineRow>;
   getByLocalId(deviceId: string, localId: string): Promise<OfflineRow | null>;
   /** null when not the provider's. */
   get(providerId: string, visitId: string): Promise<OfflineRow | null>;
@@ -126,6 +145,28 @@ export function createOfflineStore(db: D1Database): OfflineStore {
       ]);
       const out = await byId(v.visitId);
       if (!out) throw new Error("offline visit insert failed");
+      return out;
+    },
+
+    async createForRecording(v) {
+      await db.batch([
+        db
+          .prepare(
+            `INSERT INTO recordings (id, provider_id, device_id, band_number, transport, transcriber, status, origin, started_at, ended_at,
+               timezone, consent_confirmed_at, created_at, updated_at)
+             VALUES (?, ?, ?, ?, 'ble', ?, 'stopped', 'offline', ?, ?, ?, ?, ?, ?)`,
+          )
+          .bind(v.recordingId, v.providerId, v.deviceId, v.bandNumber, v.transcriber, v.recordedFrom, v.recordedTo, v.timezone, v.consentConfirmedAt, v.now, v.now),
+        db
+          .prepare(
+            `INSERT INTO offline_visits (visit_id, provider_id, device_id, local_id, status, recorded_from, recorded_to,
+               consent_confirmed_at, created_at, updated_at, target)
+             VALUES (?, ?, ?, ?, 'awaiting_audio', ?, ?, ?, ?, ?, 'recording')`,
+          )
+          .bind(v.recordingId, v.providerId, v.deviceId, v.localId, v.recordedFrom, v.recordedTo, v.consentConfirmedAt, v.now, v.now),
+      ]);
+      const out = await byId(v.recordingId);
+      if (!out) throw new Error("offline recording insert failed");
       return out;
     },
 

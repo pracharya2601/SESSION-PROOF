@@ -1,0 +1,57 @@
+{
+  "id": "scn-331-community",
+  "title": "SDP 331 Community Integration Supports",
+  "purpose": "Library visit; club only noticed, not joined.",
+  "tags": [
+    "scenario",
+    "sdp"
+  ],
+  "fromScenario": "sdp-331-community",
+  "sdpCode": "331",
+  "fake": {
+    "keywords": {
+      "goal_library_card": [
+        "library",
+        "card",
+        "books",
+        "form"
+      ],
+      "goal_social_group": [
+        "club",
+        "group"
+      ]
+    },
+    "bad": [
+      {
+        "section": "goal:goal_social_group",
+        "text": "Joined the Tuesday board game club.",
+        "cite": [
+          "ev_004"
+        ],
+        "label": "discussed_not_achieved"
+      }
+    ]
+  },
+  "expect": {
+    "mustAddress": [
+      "goal_library_card"
+    ],
+    "forbiddenClaims": [
+      {
+        "id": "joined-club",
+        "pattern": "joined (the )?(tuesday )?(board game )?club",
+        "kind": "discussed_not_achieved"
+      }
+    ],
+    "requiredCitations": [
+      {
+        "target": "goal_library_card",
+        "anyOf": [
+          "ev_002",
+          "ev_003"
+        ]
+      }
+    ],
+    "approvableAfterDuration": false
+  }
+}

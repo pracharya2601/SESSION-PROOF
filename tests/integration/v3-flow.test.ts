@@ -380,7 +380,9 @@ describe.skipIf(!ready)("v3 integration (real modules + Miniflare D1 + fake clou
     for (const kind of KINDS) {
       const m = await getDoc(h, cookie, id, kind);
       expect(m.kind).toBe(kind);
-      expect(m.banner, `${kind} draft banner`).toMatch(/DRAFT/i);
+      expect(m.watermark, `${kind} draft watermark`).toMatch(/DRAFT/i);
+      if (kind === "approval_record") expect(m.banner).toMatch(/DRAFT/i);
+      else expect(m.banner, "invoice/note carry no fixture/draft banner").toBeNull();
       expect(Array.isArray(m.blocks) && m.blocks.length > 0).toBe(true);
       expect(m.templateId).toBe(`builtin:${kind}`);
       expect(m.theme).toMatchObject({ paper: expect.any(String), fontFamily: expect.any(String) });
@@ -393,11 +395,13 @@ describe.skipIf(!ready)("v3 integration (real modules + Miniflare D1 + fake clou
     await approve(h, cookie, id);
     for (const kind of KINDS) {
       const m = await getDoc(h, cookie, id, kind);
+      expect(m.watermark ?? null, `${kind}: no watermark after approval`).toBeNull();
       if (m.banner !== null) {
         expect(m.banner).not.toMatch(/DRAFT/i);
         expect(m.banner, "only the fixture banner is allowed after approval").toMatch(/FIXTURE|SYNTHETIC/i);
       }
-      expect(m.footer.revisionLabel).toMatch(/2/);
+      if (kind === "approval_record") expect(m.footer.revisionLabel).toMatch(/2/);
+      if (kind === "invoice") expect(m.footer.revisionLabel).toMatch(/^Invoice # VOS-\d{4}$/);
     }
   });
 
@@ -419,7 +423,7 @@ describe.skipIf(!ready)("v3 integration (real modules + Miniflare D1 + fake clou
     expect(choice.text).toBe(CHOICES);
     expect((b.attestations as any[]).find((a) => a.field === "participant_direction").text).toMatch(/^yes/i);
 
-    for (const kind of ["invoice", "session_note"] as FileKind[]) {
+    for (const kind of ["session_note"] as FileKind[]) {
       const draft = await getDoc(h, cookie, id, kind);
       expect(docText(draft), `${kind} draft lacks participant choices`).toContain(CHOICES);
       expect(draft.blocks.some((x: any) => x.type === "heading" && x.section === "participant_direction"), `${kind} has no participant_direction heading`).toBe(true);
@@ -429,7 +433,7 @@ describe.skipIf(!ready)("v3 integration (real modules + Miniflare D1 + fake clou
     expect(bad.status).toBe(400);
 
     await approve(h, cookie, id);
-    for (const kind of ["invoice", "session_note"] as FileKind[]) {
+    for (const kind of ["session_note"] as FileKind[]) {
       const m = await getDoc(h, cookie, id, kind);
       expect(docText(m), `${kind} final lacks participant choices`).toContain(CHOICES);
     }
@@ -549,9 +553,9 @@ describe.skipIf(!ready)("v3 integration (real modules + Miniflare D1 + fake clou
     expect(p1.json.data.kind).toBe("invoice");
     expect(p1.json.data.title).toBe("QA Preview Title");
     expect(p1.json.data.theme.fontFamily).toBe("serif");
-    expect(p1.json.data.blocks.length).toBeGreaterThan(0);
-    // the built-in synthetic sample is fixture data → fixture banner
-    expect(p1.json.data.banner).toMatch(/FIXTURE|SYNTHETIC/i);
+    expect(p1.json.data.letterhead?.name).toBeTruthy();
+    // the built-in sample is fixture data, disclosed on the approval record only
+    expect(p1.json.data.banner).toBeNull();
 
     await putClient(h, cookie, { hourlyRateCents: 9000 });
     const id = await sync(h, cookie);
@@ -559,7 +563,7 @@ describe.skipIf(!ready)("v3 integration (real modules + Miniflare D1 + fake clou
     expect(p2.status, p2.text).toBe(200);
     expect(p2.json.data.title).toBe("QA Preview Title");
     expect(docText(p2.json.data)).toContain("C-104");
-    expect(p2.json.data.banner).toMatch(/DRAFT/i);
+    expect(p2.json.data.watermark).toMatch(/DRAFT/i);
     // preview does not persist a template
     expect(((await h.req("/api/templates", { cookie })).json.data as any[]).filter((x) => !x.builtin)).toEqual([]);
     expect((await h.req("/api/templates/preview", { method: "POST", cookie, body: { template: { ...t, kind: "receipt" } } })).status).toBe(400);

@@ -156,7 +156,7 @@ describe("band scenarios (synthetic)", () => {
         expect(["320", "331", "334", "335"]).toContain(s.serviceCode.code);
         expect(s.serviceCode.sourceNote).toContain("2019-02-14");
         expect(s.client.hourlyRateCents).toBeNull();
-        expect(s.client.displayName).toContain("synthetic");
+        expect(s.client.displayName).not.toMatch(/synthetic/i); // fictional, realistic name
       });
 
       it("has ordered script lines inside the audio", () => {

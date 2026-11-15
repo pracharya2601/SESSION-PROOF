@@ -2,6 +2,7 @@
 import { Hono } from "hono";
 import type { ListSessionsResponse, SessionDetail } from "../contracts";
 import { apiError } from "../security";
+import { gateReviewBundle } from "../services/profile/index";
 import type { ApiDeps, AppBindings } from "./deps";
 import { ok } from "./respond";
 
@@ -28,7 +29,11 @@ export function sessionRoutes(deps: ApiDeps): Hono<AppBindings> {
       return apiError(c, 400, "BAD_REQUEST", "Invalid cursor", false);
     }
     const cursor = cursorRaw ? cursorRaw : null;
-    const result = await deps.repo.listSessionsForProvider(actor.providerId, limit, cursor);
+    // Archived sessions are hidden unless ?includeArchived=1 (src/archive).
+    const includeArchived = c.req.query("includeArchived") === "1";
+    const result = includeArchived
+      ? await deps.repo.listSessionsForProvider(actor.providerId, limit, cursor, { includeArchived })
+      : await deps.repo.listSessionsForProvider(actor.providerId, limit, cursor);
     const body: ListSessionsResponse = { sessions: result.sessions, nextCursor: result.nextCursor };
     return ok(c, body);
   });
@@ -54,7 +59,7 @@ export function sessionRoutes(deps: ApiDeps): Hono<AppBindings> {
     const detail: SessionDetail = {
       session,
       appointment,
-      bundle,
+      bundle: await gateReviewBundle(deps.repo, actor.providerId, bundle, session.status === "NEEDS_REVIEW"),
       approval: currentApproval,
       finalized:
         (final !== null && final.bundleRevision === session.currentBundleRevision) ||

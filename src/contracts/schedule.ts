@@ -91,12 +91,16 @@ export const Recording = z.object({
   packets: z.number().int().nonnegative(),
   lostPackets: z.number().int().nonnegative(),
   segmentCount: z.number().int().nonnegative(),
+  /** Additive: when the provider confirmed recording consent on the phone (offline uploads send it; null if not recorded). */
+  consentConfirmedAt: Instant.nullable().optional(),
   /** Filled by the partitioner. */
   partition: z
     .object({
       sessions: z.array(z.object({ eventId: Id, clientRef: Id, sessionId: Id, segmentCount: z.number().int() })),
       unassignedSegments: z.number().int().nonnegative(),
       ambiguousSegments: z.number().int().nonnegative(),
+      /** Additive: total duration (ms) of unassigned segments ("1 min unassigned" on the phone). */
+      unassignedMs: z.number().int().nonnegative().optional(),
       partitionedAt: Instant,
     })
     .nullable(),
@@ -117,8 +121,10 @@ export type StartRecordingRequest = z.infer<typeof StartRecordingRequest>;
 
 export const StartRecordingResponse = z.object({
   recording: Recording,
-  /** Same WebSocket protocol as visits (docs/band-bridge.md), token scoped to this recording. */
+  /** Same WebSocket protocol and auth as visits (docs/band-bridge.md); the URL carries no token. */
   streamUrl: z.string(),
+  /** Token scoped to this recording (secret): `vfa-token.<token>` subprotocol or first `auth` message. */
+  streamToken: z.string(),
   streamTokenExpiresAt: Instant,
   /** What the calendar says right now, for the phone's status line ("Now: 11:00 C-201 Community"). */
   currentEvent: CalendarEvent.nullable(),
@@ -134,3 +140,98 @@ export type StartRecordingResponse = z.infer<typeof StartRecordingResponse>;
  *  unambiguous by ≥ 5 min, else "ambiguous" (attached to neither, flagged on both sessions). */
 export const PARTITION_BUFFER_MINUTES = 10;
 export const PARTITION_TIE_MINUTES = 5;
+
+// ------------------------------------------------------------------ content suggestions (pass 2, additive)
+/**
+ * Pass 2 of the partition (docs/recordings.md "Content suggestions"): segments the time rule left
+ * unassigned / ambiguous are grouped into blocks and matched by CONTENT against candidate
+ * clients' Drive goals. A suggestion is only a proposal: nothing is assigned until the provider
+ * accepts it (POST /api/recordings/:id/suggestions/:sid/accept). `rationale` never carries
+ * transcript text or names (plan keywords, segment indexes and scores only).
+ */
+export const SuggestionStatus = z.enum(["pending", "accepted", "rejected"]);
+export type SuggestionStatus = z.infer<typeof SuggestionStatus>;
+
+export const ConversationType = z.enum(["client_session", "colleague_meeting", "guardian_or_family", "phone_call", "personal", "unclear"]);
+export type ConversationType = z.infer<typeof ConversationType>;
+
+/** What kind of conversation a block looks like. signals: counts / booleans only (no text, names, refs). */
+export const ConversationAssessment = z.object({
+  conversationType: ConversationType,
+  confidence: z.number().min(0).max(1),
+  method: z.enum(["rules", "ai+rules"]),
+  signals: z.object({
+    speakers: z.number().int().nonnegative(),
+    participantVoice: z.boolean(),
+    planTermHits: z.number().int().nonnegative(),
+    workTermHits: z.number().int().nonnegative(),
+    otherClientRefs: z.number().int().nonnegative(),
+    familyTermHits: z.number().int().nonnegative(),
+    phoneCues: z.number().int().nonnegative(),
+    personalTermHits: z.number().int().nonnegative(),
+    /** Lines that talk ABOUT the participant (third person / possessive, not addressing them). */
+    participantMentions: z.number().int().nonnegative().optional(),
+    /** Family-relation cues ("Sam's mom", "your son", "as the guardian"). */
+    relationCues: z.number().int().nonnegative().optional(),
+    eventTitleHint: z.enum(["meeting", "call", "family"]).nullable(),
+  }),
+  /** true when conversationType ≠ client_session/unclear with confidence ≥ 0.6 and the provider has not decided. */
+  needsConfirmation: z.boolean(),
+  /** The provider's decision: confirmed as a client session, or dismissed. */
+  providerDecision: z.enum(["client_session", "dismissed"]).nullable(),
+});
+export type ConversationAssessment = z.infer<typeof ConversationAssessment>;
+
+/** GET /api/recordings/:id → sessionConversations[]: one per (recording, event) session block. */
+export const SessionConversation = ConversationAssessment.extend({
+  eventId: Id,
+  appointmentId: Id.nullable(),
+  sessionId: Id.nullable(),
+  segmentCount: z.number().int().nonnegative(),
+});
+export type SessionConversation = z.infer<typeof SessionConversation>;
+
+/** POST /api/recordings/:id/sessions/:eventId/conversation → 200 { conversation: SessionConversation }. */
+export const ConversationDecisionRequest = z.object({ decision: z.enum(["client_session", "dismissed"]) }).strict();
+export type ConversationDecisionRequest = z.infer<typeof ConversationDecisionRequest>;
+
+export const Suggestion = z.object({
+  id: Id,
+  recordingId: Id,
+  /** Segment indexes (RecordingSegmentView.index) of the block, ascending. */
+  segmentIndexes: z.array(z.number().int().nonnegative()).min(1).max(500),
+  from: Instant,
+  to: Instant,
+  /** null = "none": no candidate client matched the content. */
+  suggestedClientRef: Id.nullable(),
+  /** The suggested client's calendar event overlapping / near (≤ 60 min) the block, else null. */
+  eventId: Id.nullable(),
+  /** "event": extends that event's session. "unscheduled": accepting creates an unscheduled appointment (also used for "none"). */
+  kind: z.enum(["event", "unscheduled"]),
+  confidence: z.number().min(0).max(1),
+  method: z.enum(["rules", "ai+rules"]),
+  /** ≤ 200 chars, no transcript text, no names. */
+  rationale: z.string().max(200),
+  /** Clients that were scored (for the provider's override picker). */
+  candidateClientRefs: z.array(Id).max(20),
+  status: SuggestionStatus,
+  createdAt: Instant,
+  decidedAt: Instant.nullable(),
+  /** Set once accepted. */
+  acceptedClientRef: Id.nullable(),
+  appointmentId: Id.nullable(),
+  sessionId: Id.nullable(),
+  /** Conversation type of the block (null when not classified). */
+  conversation: ConversationAssessment.nullable().optional(),
+});
+export type Suggestion = z.infer<typeof Suggestion>;
+
+/** POST /api/recordings/:id/suggestions/:sid/accept body: override the client and/or the event. */
+export const AcceptSuggestionRequest = z
+  .object({
+    clientRef: Id.optional(),
+    eventId: Id.optional(),
+  })
+  .strict();
+export type AcceptSuggestionRequest = z.infer<typeof AcceptSuggestionRequest>;
+/** → 200 { suggestion: Suggestion, sessionId: string }. POST …/reject → 200 { suggestion }. */

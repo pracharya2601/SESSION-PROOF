@@ -13,6 +13,12 @@ import { api } from "../../api";
 import { Band, oggPackets, SimTransport, type AudioEvent } from "../../vendor/vexo-open/index.js";
 import { encodeAudioFrame, mergeSegment, parseServerMessage, processingSettled, startControl } from "./protocol";
 
+
+/** WebSocket subprotocols for a stream: `vfa-stream` (echoed) + the token (docs/band-bridge.md §1). */
+export function streamProtocols(token: string): string[] {
+  return ["vfa-stream", `vfa-token.${token}`];
+}
+
 export type ConnectMethod = "ble" | "serial" | "sim";
 export type BandPhase = "idle" | "connecting" | "connected" | "reconnecting";
 export type RecPhase = "idle" | "starting" | "recording" | "stopping" | "processing" | "error";
@@ -384,6 +390,7 @@ export function useVisitRecorder(opts: { onNotice?: (n: RecorderNotice) => void 
       patch({ ...INITIAL, band: s.band, phase: "starting" });
 
       let streamUrl: string;
+      let streamToken: string;
       try {
         let timezone: string | undefined;
         try {
@@ -398,6 +405,7 @@ export function useVisitRecorder(opts: { onNotice?: (n: RecorderNotice) => void 
           ...(timezone ? { timezone } : {}),
         });
         streamUrl = res.streamUrl;
+        streamToken = res.streamToken;
         patch({ visit: res.visit, transcriber: res.visit.transcriber });
       } catch (e) {
         patch({ phase: "idle", error: { code: errorCode(e, "START_FAILED"), message: bandErrorText(e) } });
@@ -407,7 +415,9 @@ export function useVisitRecorder(opts: { onNotice?: (n: RecorderNotice) => void 
 
       let ws: WebSocket;
       try {
-        ws = new WebSocket(streamUrl);
+        // The token rides in Sec-WebSocket-Protocol, never in the URL (Cloudflare logs URLs);
+        // the server echoes "vfa-stream".
+        ws = new WebSocket(streamUrl, streamProtocols(streamToken));
       } catch (e) {
         failRecording("STREAM_FAILED", bandErrorText(e));
         return;

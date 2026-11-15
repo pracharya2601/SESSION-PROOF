@@ -155,7 +155,8 @@ describe("device API (bearer key)", () => {
     const s1 = await dev(hh, "/api/device/visits", key, { method: "POST", body: { clientRef: "C-104", bandNumber: 7, transport: "ble" } });
     expect(s1.status, s1.text).toBe(201);
     expect(s1.json.data.visit).toMatchObject({ clientRef: "C-104", transcriber: "simulated", status: "recording", bandNumber: 7 });
-    expect(s1.json.data.streamUrl).toMatch(/^ws:\/\/localhost:8787\/api\/visits\/visit_[0-9a-f]+\/stream\?token=/);
+    expect(s1.json.data.streamUrl).toMatch(/^ws:\/\/localhost:8787\/api\/visits\/visit_[0-9a-f]+\/stream$/);
+    expect(s1.json.data.streamToken).toEqual(expect.any(String));
 
     // explicit device transcriber
     const s2 = await dev(hh, "/api/device/visits", key, { method: "POST", body: { clientRef: "C-104", bandNumber: null, transport: "ble", transcriber: "device" } });

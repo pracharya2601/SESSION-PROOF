@@ -26,6 +26,8 @@ import type {
   FileKind,
   ListFilesResponse,
   SettingsBundle,
+  BusinessProfileView,
+  ProviderProfileInput,
   StartConnectionResponse,
   StorageSettings,
   // v3
@@ -55,6 +57,18 @@ import type {
   NotificationSettingsView,
   TestNotificationResult,
 } from "../notify/types";
+import type { AssistantMessage, AssistantReply, AssistantStatus } from "../assistant/types";
+import type { Recording } from "../contracts";
+import type {
+  AcceptSuggestionRequest,
+  AcceptSuggestionResponse,
+  ArchiveKind,
+  ArchivedItemView,
+  AuditEntry,
+  RecordingDetailView,
+  RecordingSuggestion,
+  RecordingTimelineEvent,
+} from "./components/recordings/types";
 
 /** GET /api/me — shape kept loose; the server derives identity. */
 export interface MeResponse {
@@ -168,8 +182,12 @@ export const api = {
   me: () => dataOf<MeResponse>("GET", "/api/me"),
   health: (opts?: { silent?: boolean }) =>
     request<HealthResponse>("GET", "/api/health", undefined, opts).then((r) => r.data),
-  listSessions: (cursor?: string) =>
-    dataOf<ListSessionsResponse>("GET", "/api/sessions" + (cursor ? `?cursor=${enc(cursor)}` : "")),
+  /** Archived sessions are left out unless includeArchived. */
+  listSessions: (cursor?: string, opts?: { includeArchived?: boolean }) =>
+    dataOf<ListSessionsResponse>(
+      "GET",
+      "/api/sessions" + query({ cursor: cursor || undefined, includeArchived: opts?.includeArchived ? "1" : undefined }),
+    ),
   getSession: (id: string) => dataOf<SessionDetail>("GET", `/api/sessions/${enc(id)}`),
   sync: () => dataOf<SyncResponse>("POST", "/api/sync", {}),
   getSyncSettings: () => dataOf<SyncSettingsView>("GET", "/api/settings/sync"),
@@ -189,6 +207,12 @@ export const api = {
     dataOf<{ reset: boolean; sessionId: string }>("POST", `/api/dev/reset-session/${encodeURIComponent(id)}`, {}),
   approve: (id: string, req: ApprovalRequest): Promise<{ status: number; data: ApproveResponse }> =>
     request<ApproveResponse>("POST", `/api/sessions/${enc(id)}/approve`, req),
+  /** Review assistant: is it configured (AI key)? Silent: a 503 here is not server trouble. */
+  assistantStatus: (id: string) =>
+    request<AssistantStatus>("GET", `/api/sessions/${enc(id)}/assistant`, undefined, { silent: true }).then((r) => r.data),
+  /** Review assistant turn: returns a reply and PROPOSALS (never applied; apply with saveReview). */
+  askAssistant: (id: string, req: { messages: AssistantMessage[]; expectedRevision: number }) =>
+    request<AssistantReply>("POST", `/api/sessions/${enc(id)}/assistant`, req, { silent: true }).then((r) => r.data),
 
   // ---------------------------------------------------------------- v2
   listFiles: (cursor?: string) =>
@@ -214,6 +238,8 @@ export const api = {
   saveStorageSettings: (s: StorageSettings) => dataOf<SettingsBundle>("PUT", "/api/settings/storage", s),
   saveEmailSettings: (s: EmailSettings) => dataOf<SettingsBundle>("PUT", "/api/settings/email", s),
   saveAiSettings: (s: AiSettings) => dataOf<SettingsBundle>("PUT", "/api/settings/ai", s),
+  getBusinessProfile: () => dataOf<BusinessProfileView>("GET", "/api/settings/business-profile"),
+  saveBusinessProfile: (p: ProviderProfileInput) => dataOf<BusinessProfileView>("PUT", "/api/settings/business-profile", p),
 
   // ---------------------------------------------------------------- v3
   listClients: (opts?: { search?: string; includeInactive?: boolean }) =>
@@ -234,17 +260,24 @@ export const api = {
   previewTemplate: (req: PreviewTemplateRequest) => dataOf<DocModel>("POST", "/api/templates/preview", req),
   getDocument: (sessionId: string, kind: FileKind, templateId?: string) =>
     dataOf<DocModel>("GET", `/api/sessions/${enc(sessionId)}/documents/${enc(kind)}` + query({ templateId })),
-  listRuns: (opts?: { status?: RunSummary["status"]; sessionId?: string; cursor?: string }) =>
+  /** Archived runs (and runs of archived sessions) are left out unless includeArchived. */
+  listRuns: (opts?: { status?: RunSummary["status"]; sessionId?: string; cursor?: string; includeArchived?: boolean }) =>
     dataOf<ListRunsResponse>(
       "GET",
-      "/api/runs" + query({ status: opts?.status, sessionId: opts?.sessionId, cursor: opts?.cursor }),
+      "/api/runs" +
+        query({
+          status: opts?.status,
+          sessionId: opts?.sessionId,
+          cursor: opts?.cursor,
+          includeArchived: opts?.includeArchived ? "1" : undefined,
+        }),
     ),
   getRun: (runId: string) => dataOf<RunDetail>("GET", `/api/runs/${enc(runId)}`),
 
   // ---------------------------------------------------------------- band capture (Record visit)
   /** Which transcriber a new visit would use now (null = capture unavailable, see reason). */
   captureStatus: () => dataOf<CaptureStatus>("GET", "/api/visits/capture-status"),
-  /** Creates the visit (201) and returns the absolute stream URL (with ?token=) for the WebSocket. */
+  /** Creates the visit (201): the stream URL (no token) + `streamToken` for the WebSocket subprotocol. */
   startVisit: (req: StartVisitRequest) => dataOf<StartVisitResponse>("POST", "/api/visits", req),
   getVisit: (id: string) => dataOf<VisitDetail>("GET", `/api/visits/${enc(id)}`),
   /** Call after the stream sent "done" (or closed): hands the visit to processing. */
@@ -255,6 +288,29 @@ export const api = {
   /** The key and pairing link are returned ONCE; the server keeps only a hash. */
   pairDevice: (name: string) => dataOf<PairDeviceResponse>("POST", "/api/devices", { name }),
   revokeDevice: (id: string) => dataOf<{ revoked: true }>("DELETE", `/api/devices/${enc(id)}`),
+
+  // ---------------------------------------------------------------- recordings (client-less, partitioned)
+  /** Newest first; archived recordings are listed by listArchived("recording"). */
+  listRecordings: () => dataOf<Recording[]>("GET", "/api/recordings"),
+  getRecording: (id: string) => dataOf<RecordingDetailView>("GET", `/api/recordings/${enc(id)}`),
+  /** Calendar lanes for the detail timeline. */
+  recordingEvents: (id: string) => dataOf<{ events: RecordingTimelineEvent[] }>("GET", `/api/recordings/${enc(id)}/events`),
+  acceptSuggestion: (recordingId: string, suggestionId: string, req: AcceptSuggestionRequest = {}) =>
+    dataOf<AcceptSuggestionResponse>("POST", `/api/recordings/${enc(recordingId)}/suggestions/${enc(suggestionId)}/accept`, req),
+  rejectSuggestion: (recordingId: string, suggestionId: string) =>
+    dataOf<{ suggestion: RecordingSuggestion }>("POST", `/api/recordings/${enc(recordingId)}/suggestions/${enc(suggestionId)}/reject`, {}),
+
+  // ---------------------------------------------------------------- archive / delete (src/api/archive.ts)
+  listArchived: (kind: ArchiveKind) => dataOf<{ items: ArchivedItemView[] }>("GET", "/api/archive" + query({ kind })),
+  archive: (kind: ArchiveKind, id: string, reason?: string) =>
+    dataOf<{ item: ArchivedItemView }>("POST", `/api/archive/${enc(kind)}/${enc(id)}`, reason ? { reason } : {}),
+  unarchive: (kind: ArchiveKind, id: string) => dataOf<{ unarchived: true }>("DELETE", `/api/archive/${enc(kind)}/${enc(id)}`),
+  /** 409 ARCHIVE_ONLY for approved sessions, SESSION_BUSY while processing. */
+  deleteSession: (id: string) => dataOf<{ deleted: true }>("DELETE", `/api/sessions/${enc(id)}`),
+  deleteRecording: (id: string) => dataOf<{ deleted: true }>("DELETE", `/api/recordings/${enc(id)}`),
+  /** 409 ARCHIVE_ONLY for a processing run whose session still exists. */
+  deleteRun: (runId: string) => dataOf<{ deleted: true }>("DELETE", `/api/runs/${enc(runId)}`),
+  listAudit: (limit?: number) => dataOf<{ entries: AuditEntry[] }>("GET", "/api/audit" + query({ limit: limit ? String(limit) : undefined })),
 
   // ---------------------------------------------------------------- notifications (approval hand-off)
   listNotifications: (opts?: { unread?: boolean; limit?: number }) =>

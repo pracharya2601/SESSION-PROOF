@@ -41,8 +41,15 @@ export function BlockView({ block, from, to }: { block: DocBlock; from?: number;
         <ul className="dp-list">
           {items.map((it, k) => (
             <li key={k}>
-              <span className="dp-li-text">{it.text}</span>
-              {it.tag && <span className="dp-tag">{it.tag}</span>}
+              <span className="dp-li-text">
+                {it.text}
+                {it.refs && it.refs.length > 0 && (
+                  <sup className="dp-ref" aria-label={`Sources ${it.refs.join(", ")}`}>
+                    {it.refs.map((n) => `[${n}]`).join("")}
+                  </sup>
+                )}
+              </span>
+              {it.tag && <span className={it.tag === "Notice" ? "dp-tag dp-tag-notice" : "dp-tag"}>{it.tag}</span>}
             </li>
           ))}
         </ul>
@@ -64,7 +71,7 @@ export function BlockView({ block, from, to }: { block: DocBlock; from?: number;
       const rows = block.rows.slice(from ?? 0, to ?? block.rows.length);
       const continued = (from ?? 0) > 0;
       return (
-        <table className={continued ? "dp-table dp-table-cont" : "dp-table"}>
+        <table className={`dp-table${continued ? " dp-table-cont" : ""}${block.rowKinds ? " dp-table-grouped" : ""}`}>
           <colgroup>
             {block.columns.map((_, k) => (
               <col key={k} style={widths[k] ? { width: widths[k] } : undefined} />
@@ -81,7 +88,7 @@ export function BlockView({ block, from, to }: { block: DocBlock; from?: number;
           </thead>
           <tbody>
             {rows.map((r, ri) => (
-              <tr key={ri}>
+              <tr key={ri} className={block.rowKinds ? `dp-row-${block.rowKinds[(from ?? 0) + ri] ?? "item"}` : undefined}>
                 {block.columns.map((c, k) => (
                   <td key={k} className={c.align === "right" ? "dp-r" : undefined}>
                     {r[k] ?? ""}
@@ -137,6 +144,23 @@ export function BlockView({ block, from, to }: { block: DocBlock; from?: number;
           </div>
         </div>
       );
+    case "parties":
+      return (
+        <div className="dp-parties" style={{ gridTemplateColumns: `repeat(${Math.max(1, block.parties.length)}, minmax(0, 1fr))` }}>
+          {block.parties.map((p, k) => (
+            <div className="dp-party" key={k}>
+              <div className="dp-party-label">{p.label}</div>
+              {p.lines.map((l, j) => (
+                <div key={j} className={l.startsWith("[") || l.includes("[not") ? "dp-party-line dp-placeholder" : j === 0 ? "dp-party-line dp-party-first" : "dp-party-line"}>
+                  {l}
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      );
+    case "pagebreak":
+      return null;
     case "divider":
       return <hr className="dp-hr" />;
     default:

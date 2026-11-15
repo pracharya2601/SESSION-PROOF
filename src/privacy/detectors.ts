@@ -4,7 +4,7 @@
  * non-overlapping set (longest first, then category priority).
  */
 import type { PiiType, PrivacyOptions } from "../contracts/v2";
-import { FIRST_NAMES, NAME_STOPWORDS } from "./names";
+import { FIRST_NAMES, NAME_STOPWORDS, NON_NAME_WORDS } from "./names";
 
 export interface Span {
   start: number;
@@ -36,6 +36,20 @@ const PHONE_RE =
   /(?<![\w$:.\/-])(?:\+?1[\s.-]?)?(?:\(\d{3}\)\s?|\d{3}[\s.-])\d{3}[\s.-]\d{4}(?:\s?(?:x|ext\.?|extension)\s?\d{1,6})?(?![\w:\/-]|\.\d)/gi;
 // Ten bare digits only when anchored by a phone keyword.
 const PHONE_KW_RE = /\b(?:phone|cell|mobile|tel|telephone|number|call|text)(?:\s+(?:me|at|is|number|no\.?))*\s*[:#]?\s*(\+?1?\d{10})\b/gi;
+
+// Spelled-out phone digits: ≥ 7 digit words in a row ("five five five, zero one nine nine").
+const DIGIT_WORDS = ["zero", "oh", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"];
+const DIGIT_WORD = String.raw`(?:${DIGIT_WORDS.join("|")})`;
+const SPELLED_PHONE_RE = new RegExp(String.raw`\b${DIGIT_WORD}(?:[\s,.\-]+${DIGIT_WORD}){6,}\b`, "gi");
+/** Counting aloud ("one two three four five six seven") is not a phone number. */
+function isCounting(spelled: string): boolean {
+  const ds = spelled
+    .toLowerCase()
+    .split(/[\s,.\-]+/)
+    .filter(Boolean)
+    .map((w) => (w === "oh" || w === "zero" ? 0 : DIGIT_WORDS.indexOf(w) - 1));
+  return ds.every((d, i) => i === 0 || d === ds[i - 1]! + 1 || d === ds[i - 1]! - 1);
+}
 
 // ------------------------------------------------------------------ identifiers
 const SSN_RE = /(?<![\w-])\d{3}-\d{2}-\d{4}(?![\w-])/g;
@@ -91,6 +105,34 @@ const INTRO_PAIR_RE = new RegExp(
   "g",
 );
 const BIGRAM_RE = new RegExp(String.raw`\b(${CAP})(?=\s+(${CAP})\b)`, "g");
+/** Any capitalised pair; kept only mid-sentence and when neither word is a known non-name. */
+const CAP_PAIR_RE = new RegExp(String.raw`(?<![\p{L}\p{N}'\-])(${CAP})\s+(${CAP})(?![\p{L}\p{N}'\-])`, "gu");
+const RELATIONS = [
+  "friend", "best friend", "brother", "sister", "mom", "mother", "dad", "father", "aunt", "auntie", "uncle", "cousin",
+  "niece", "nephew", "son", "daughter", "husband", "wife", "partner", "boyfriend", "girlfriend", "fiance", "fiancee",
+  "neighbor", "neighbour", "roommate", "grandma", "grandmother", "grandpa", "grandfather", "grandson", "granddaughter",
+  "coworker", "co-worker", "colleague", "boss", "supervisor", "teacher", "landlord", "landlady", "caseworker",
+  "case manager", "social worker", "therapist", "counselor", "tutor", "coach", "sponsor", "stepmom", "stepdad",
+  "stepmother", "stepfather", "stepbrother", "stepsister", "godmother", "godfather", "buddy", "classmate", "caregiver",
+];
+/** "my friend X", "his brother X Y", "your aunt X": a single unknown capitalised name after a relation. */
+const RELATION_NAME_RE = new RegExp(
+  String.raw`\b(?:${["my", "his", "her", "their", "your", "our", "the"].map(kw).join("|")})\s+(?:${RELATIONS.map(kw).join("|")})\s*,?\s+(${CAP}(?:\s+${CAP})?)`,
+  "g",
+);
+/** "X called", "X texted me": a single capitalised word as the subject of a contact verb. */
+const CONTACT_VERB_RE = new RegExp(String.raw`(?<![\p{L}\p{N}'\-])(${CAP})\s+(?:called|texted|phoned|emailed|messaged|rang|stopped\s+by|came\s+over|picked\s+(?:me|him|her|them)\s+up)\b`, "gu");
+
+function isNonName(word: string): boolean {
+  const w = word.toLowerCase().replace(/'s$/, "");
+  return NAME_STOPWORDS.has(w) || NON_NAME_WORDS.has(w) || NON_NAME_WORDS.has(word.toLowerCase());
+}
+/** True when position `i` starts a sentence (start, after .!? or an opening quote/bracket/colon). */
+function atSentenceStart(text: string, i: number): boolean {
+  let j = i - 1;
+  while (j >= 0 && /\s/.test(text[j]!)) j--;
+  return j < 0 || '.!?:;"\u201c([-\u2014'.includes(text[j]!);
+}
 
 function isStop(word: string): boolean {
   return NAME_STOPWORDS.has(word.toLowerCase());
@@ -169,6 +211,9 @@ export function detectSpans(text: string, options: PrivacyOptions, terms: TermMa
     scan(EMAIL_RE, text, (m) => pushGroup(out, m, "EMAIL", PRIORITY.EMAIL, 99));
     scan(PHONE_RE, text, (m) => pushGroup(out, m, "PHONE", PRIORITY.PHONE, 99));
     scan(PHONE_KW_RE, text, (m) => pushGroup(out, m, "PHONE", PRIORITY.PHONE));
+    scan(SPELLED_PHONE_RE, text, (m) => {
+      if (!isCounting(m[0])) pushGroup(out, m, "PHONE", PRIORITY.PHONE, 99);
+    });
   }
   if (options.redactIdentifiers) {
     scan(SSN_RE, text, (m) => pushGroup(out, m, "SSN", PRIORITY.SSN, 99));
@@ -204,6 +249,27 @@ export function detectSpans(text: string, options: PrivacyOptions, terms: TermMa
       if (!FIRST_NAMES.has(first.toLowerCase()) || isStop(second)) return;
       const end = text.indexOf(second, m.index + first.length) + second.length;
       out.push({ start: m.index, end, type: "NAME", priority: PRIORITY.NAME });
+    });
+    // Unknown capitalised pair mid-sentence ("your aunt Tobiah Quell"): likely a person name.
+    scan(CAP_PAIR_RE, text, (m) => {
+      const first = m[1] ?? "";
+      const second = m[2] ?? "";
+      if (isNonName(first) || isNonName(second) || atSentenceStart(text, m.index)) return;
+      out.push({ start: m.index, end: m.index + m[0].length, type: "NAME", priority: PRIORITY.NAME });
+    });
+    scan(RELATION_NAME_RE, text, (m) => {
+      const name = m[1] ?? "";
+      const parts = name.split(/\s+/);
+      // Keep the second word only when it is not a non-name ("my friend Ada Lovell" vs "my friend Ada Monday").
+      const keep = parts.length === 2 && isNonName(parts[1]!) ? parts[0]! : name;
+      if (isNonName(parts[0]!)) return;
+      const start = m.index + m[0].lastIndexOf(name);
+      out.push({ start, end: start + keep.length, type: "NAME", priority: PRIORITY.NAME });
+    });
+    scan(CONTACT_VERB_RE, text, (m) => {
+      const name = m[1] ?? "";
+      if (isNonName(name)) return;
+      out.push({ start: m.index, end: m.index + name.length, type: "NAME", priority: PRIORITY.NAME });
     });
   }
   return resolveSpans(out);

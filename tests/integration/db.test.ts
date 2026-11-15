@@ -22,7 +22,10 @@ import {
   demoFacts,
 } from "../../fixtures/scenario";
 
-const MIGRATION = readFileSync(fileURLToPath(new URL("../../migrations/0001_init.sql", import.meta.url)), "utf8");
+// 0001 plus 0013 (archive: ensureSession / discovery consult dismissed_events).
+const MIGRATION = ["0001_init.sql", "0013_archive.sql"]
+  .map((f) => readFileSync(fileURLToPath(new URL(`../../migrations/${f}`, import.meta.url)), "utf8"))
+  .join("\n");
 const NOW = new Date("2026-11-13T20:00:00.000Z");
 
 const mf = new Miniflare({ modules: true, script: "export default {}", d1Databases: ["DB"] });
@@ -31,6 +34,7 @@ afterAll(() => mf.dispose());
 const TABLES = [
   "oauth_connections", "pending_deliveries", "final_bundles", "approvals", "bundles",
   "evidence", "sessions", "appointments", "service_configs", "providers",
+  "archived_items", "dismissed_events", "audit_log",
 ];
 
 async function freshDb(): Promise<D1Database> {

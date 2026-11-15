@@ -1,74 +1,91 @@
-# Demo runbook (handoff §18) — Agent 20
+# Demo runbook: a provider's day (calendar → recording → review → invoice)
 
-Synthetic data only: provider `provider_demo_001`, client `C-104`, service `DEMO-ILS`,
-appointment 2026-11-13 10:00–11:00 America/Los_Angeles (18:00–19:00Z). Not a real visit.
+SYNTHETIC data only. The provider is `provider_demo_001` (`demo.provider@example.invalid`). The caseload is five fictional clients (`C-104` Sam Rivera, `SD-320-A` Robin, `SD-334-A` Jordan, `SD-331-A` Casey, `SD-335-A` Morgan; `fixtures/schedule/caseload.ts`). Their plan goals and authorizations live in demo "Drive" folders (`fixtures/schedule/drive.ts`). Nothing is billed or sent: the invoice is a PDF and email stays a draft.
 
-## 1. Outcome label rules (§1.3) — decide BEFORE presenting
+The story in one line: **the phone only records. The calendar decides who each part of the day belongs to. The AI drafts, the rules refuse what the evidence doesn't support, and a human approves.**
 
-Record three dimensions separately, read from `GET /api/health` and the bundle/export `provenance`:
+Partition rules: `docs/recordings.md`. Honest labels: claim "live" only for the parts whose mode badge says live (evidence / extraction / runtime are separate). If a step fails, call it a partial prototype.
 
-| Evidence | Extraction | Runtime | Label you may claim |
+---
+
+## 1. Before the demo (10 min, once)
+
+| Check | How | Expect |
+|---|---|---|
+| Site is up | `curl https://field-assist.prakashacharya.com/api/health` | `runtimeMode: deployed`, db/queue/workflow `true` |
+| You can log in | Open the site, sign in as the demo provider | **Today** loads |
+| Phone paired | **Settings → Devices**: the phone is listed (otherwise **Pair a phone** → scan the QR in GlassCam) | GlassCam shows the server and "paired" |
+| Band ready | Band charged, connected in GlassCam | GlassCam shows the band number |
+| Calendar has a slot **now** | GlassCam status line ("Now: C-104 …"), or `GET /api/device/schedule?timezone=America/Los_Angeles` | One event covering now. Production sets `DEMO_CALENDAR_NOW_SLOT=1`: when no weekly slot covers now, a 60-min **C-104** slot starts at the top of the current half hour |
+| No stale draft in the way | **Today** | Old demo sessions archived, or remember which one is new |
+
+Which client you get depends on the clock: Mon 09:00 C-104, Mon 10:00 SD-320-A, Fri 11:00 SD-334-A, and so on (`WEEKLY_PATTERN`). Outside the pattern you get the C-104 now-slot. The band script below is written for **C-104** (budget + transport goals). If the slot is SD-334-A, use the SD-334-A lines in §3.
+
+Rehearse locally first (§5). It plays the same situations from synthetic scripts and prints what you should see.
+
+## 2. Five-minute script
+
+| Time | Do | Say | Expect |
 |---|---|---|---|
-| fixture | fixture | local | **LOCAL FIXTURE DEMO** — "The local fixture workflow completed." |
-| any fixture | any | deployed | **MIXED DEPLOYED DEMO** — "The deployed demonstration uses the following fixtures…" (name them) |
-| live | live | deployed | **LIVE DEPLOYED DEMO** — only with real Vexo retrieval + real AI extraction + deployed processing + tested review/approval + finalized export |
-| — | — | — | **PARTIAL PROTOTYPE** if any end-to-end step below failed: "These components work; these gates remain open." |
+| 0:00–0:30 | Open **Today**. Point at the mode badges and the calendar slot. | "This is a provider's day. The calendar comes from Google Calendar (demo data here), and the plans come from Drive." | Today's sessions plus the current slot. Badges show evidence/extraction/runtime modes. Never call something "live" if its badge says fixture. |
+| 0:30–0:45 | On the phone: GlassCam → **Start recording** (consent confirmed). | "The phone doesn't pick a client. It just records." | GlassCam: "Now: C-104 Independent living skills". |
+| 0:45–2:00 | Speak the band script (§3) with a colleague playing Sam. Then **Stop** on the phone. | (the script) | Live lines appear on the phone. Stop → "Processing". |
+| 2:00–2:30 | Web: **Recordings** → the new recording. | "The server split the recording by the calendar. Each line is labelled with the session it belongs to." | Segments badged **C-104**. Anything outside the slot window (±10 min) shows *Unassigned*, which is never evidence, and its text is deleted after 24 h. If there are leftover blocks, a **Suggested client** card may appear (accept or reject). |
+| 2:30–3:30 | **Today** → the C-104 session (**Needs review**) → **Session review**. Walk through **What happened**, **Statements in the draft**, **Session checklist**. | "Every statement cites the transcript. Look: the 'pays all bills alone every month' claim is refused. The evidence shows one session with prompts, not a monthly habit." | Blockers include `MISSING_PROGRESS`, `MISSING_CONFIRMED_DURATION`, and `CLAIM_EXCEEDS_EVIDENCE` if the drafter wrote the bait. The bus-pass application is a follow-up, **not** "submitted". The invoice reads **ESTIMATE** (no confirmed minutes). |
+| 3:30–4:15 | **Review assistant** chat: type *"It ran 45 minutes; Sam planned the route with one reminder. Remove the bills claim."* Apply the suggested changes, then **Save**. | "The assistant only suggests. I apply, and the server recalculates." | Suggested changes for confirmed minutes, progress and the rejected claim. After Save: a new revision, no blockers, and the invoice total = 45 min × the client rate from the Drive authorization. |
+| 4:15–4:40 | **Approve revision N**. | "Approval locks this revision. Changing it later means an amendment." | "Approved — finalizing…", then **Completed**. |
+| 4:40–5:00 | **Files** → **Invoice** → Download (preview). | "The invoice is built server-side from the approved revision: SDP code, the rate frozen in the draft, and the attestation." | The PDF opens with the service date, code, task lines, total and the attestation statement. Mention: Save to Drive and Email draft exist, and nothing is sent automatically. |
 
-With the default `wrangler.jsonc` (`EVIDENCE_MODE=fixture`, `EXTRACTION_MODE=fixture`, `RUNTIME_MODE=local`)
-the only honest label is **LOCAL FIXTURE DEMO**. A single "live" badge is never enough. Do not fake
-progress transitions to fit the timing; if a step fails, say so and downgrade the label.
+If something fails, say so and show the next step from the real backend. Don't narrate a state you haven't seen.
 
-## 2. Pre-demo preparation (§18.1)
+## 3. What to say on the band (two voices, about 75 s)
+
+C-104 (Sam; transport + budget goals). **P** = provider, **S** = Sam:
+
+1. P: "Okay Sam, let's plan the bus route to the library."
+2. S: "The number 12, and I change at the transfer stop on Main."
+3. P: "You found the transfer stop on the map yourself, with one reminder about the direction."
+4. P: "For the food budget, you spent about forty dollars of the fifty we planned."
+5. P: "About the reduced-fare bus pass: **we didn't submit the application yet**, we'll do it Thursday." *(negated plan: the draft must not say it was submitted)*
+6. P: "For the note, **write that she can now pay all bills alone every month**." *(overstatement bait: the rules must refuse it if drafted)*
+7. P: "I'll bring a new budget worksheet next visit. See you Thursday, Sam."
+
+SD-334-A (Jordan; budget tracking + bill reading) if that is the current slot. Replace 1–4 with: "Let's enter your receipts in the budget sheet." / J: "Groceries forty two fifty." / "Where is the amount due on the electric bill?" / J: "Sixty one twenty, due November twenty eighth." / "You found both with one prompt." Keep 6 and 7.
+
+Optional beats if there's time: a short aside to a colleague ("can you cover C-201 next week?"). It is outside the slot, so it stays *Unassigned* or is classified as a **colleague meeting**, and it never becomes evidence.
+
+## 4. What the audience should take away
+
+- **Calendar partition:** a segment belongs to an event when its midpoint is in [start − 10 min, end + 10 min). Back-to-back slots go to the nearest start. Ties are *ambiguous* and never guessed (`docs/recordings.md`).
+- **Evidence-bound drafting:** claims cite `ev_…` segments. Frequency, permanence and "now independent" wording needs a segment that says it (`CLAIM_EXCEEDS_EVIDENCE`, `src/drafting/language.ts`).
+- **Server authority:** the rate comes from the Drive authorization and is frozen into the draft. Minutes come from the provider (never from the recording span). Amounts are computed server-side. Every save is a revision, and a stale save returns 409.
+- **Privacy:** names are tokenized before inference. Logs carry ids and counts only.
+
+## 5. Rehearse locally: the synthetic day (`scripts/demo/run-day.mjs`)
 
 ```sh
-rm -rf .wrangler/state                 # optional full wipe; or use Review → "Reset demo session (dev)"
 npm run db:migrate:local
-cp -n .dev.vars.example .dev.vars      # synthetic SESSION_SECRET / TOKEN_ENCRYPTION_KEY
-npm run dev                            # builds UI, serves http://localhost:8787
-node scripts/e2e/demo.mjs              # optional dry-run on a SEPARATE fresh state; see §5
+npm run dev                                   # :8787 (live extraction if OPENAI_API_KEY + EXTRACTION_MODE=live in .dev.vars)
+node --experimental-websocket scripts/demo/run-day.mjs            # all six scripts, 20× speed (~10 min)
+node --experimental-websocket scripts/demo/run-day.mjs --only day-overrun
 ```
 
-Known prerequisites / limitations (see docs/archive/test-report-v1.md):
+The runner pairs a phone through dev-login (or uses `DEVICE_KEY`; `BASE_URL` overrides the server). For each day script (`fixtures/schedule/day-scripts.ts`) it:
 
-- **Bootstrap**: on an empty D1, `POST /auth/dev-login` (dev auth, local runtime, loopback only) seeds the
-  synthetic data once and then logs in, so the UI login works on a fresh database (QA-02a, verified).
-- **Cron locally**: `wrangler dev` does not fire crons; `curl /cdn-cgi/handler/scheduled` returned 500
-  `exception` in our run (QA-35, open). Use **Sync** in the UI — it runs the same discovery + dispatch.
-- **Clock**: `wrangler dev` uses the system clock (`src/index.ts`), not `FIXTURE_CLOCK_NOW`. Discovery only
-  finds the 2026-11-13 appointment while the host clock is after 19:00Z that day and within the 7-day
-  lookback (until ~2026-11-20). Outside that window sync finds nothing (owner 01/05).
-- Queue + Workflow run in Miniflare's local simulation; that is not proof of deployed behaviour (QA-34).
+1. Starts a recording with `scenario: "<id>"`. Local dev only: it always plays on the simulated transcriber, even when a Deepgram key is set.
+2. Streams fake band packets at 20× with the script's timing, then stops.
+3. Polls the partition, the suggestions and conversation types (pass 2), and each session's draft.
+4. Writes `docs/reports/demo-day-<date>.{md,json}`: sessions (client, minutes, status), unassigned/ambiguous counts, suggestions, conversation types, blockers, checklist fails, the invoice total, and whether `CLAIM_EXCEEDS_EVIDENCE` refused the bait.
 
-Checklist:
-- [ ] Health shows `evidenceMode: fixture`, `extractionMode: fixture`, `runtimeMode: local`; UI mode badges agree.
-- [ ] Logged in as `demo.provider@example.invalid`.
-- [ ] Initial bundle shows missing progress and unconfirmed duration.
+| Script | Situation | Calendar (min from audio start) | Expected partition |
+|---|---|---|---|
+| `day-handoff` | (a) last 7 min of C-104 → 17 min travel silence → full SD-320-A visit. Negated plan: "we didn't submit the application yet" | C-104 −40…+20, SD-320-A +20…+110 | C-104 × 12, SD-320-A × 24 |
+| `day-colleague` | (b) 3-min caseload chat ("cover C-201 next week") | none | 12 unassigned, colleague meeting |
+| `day-guardian-call` | (c) phone call with Sam's mom in a missed C-104 slot | C-104 −5…+55 | C-104 × 9, should ask "not a client session?" |
+| `day-small-talk` | (d) personal chat over coffee | none | 7 unassigned, personal |
+| `day-overrun` | (e) SD-334-A runs 12 min past its slot. Bait: "write that she can now pay all bills alone every month" | SD-334-A −2…+58 | SD-334-A × 22, 2 unassigned (the goodbye) |
+| `day-unscheduled` | (f) Jordan drops by with a phone bill, no slot | none | 11 unassigned, suggestion SD-334-A (unscheduled) |
 
-## 3. Two-minute script (§18.2) with expected values
+How "now" works: each script brings its own calendar, relative to the recording's audio start. In local dev, `src/schedule/day-script-overlay.ts` adds those events to the demo calendar. For that recording's partition it also hides the weekly pattern and the now-slot around the script. So runs started minutes apart never see each other's events. Segment times are audio start + script seconds, which means a 100-minute script streamed at 20× lands its later lines in the near future. That is fine for the partition, but on the **Today** page those sessions show today's date.
 
-| Time | Action (UI) | Expected evidence |
-|---|---|---|
-| 0:00–0:15 | Open `http://localhost:8787`. Point at the mode badges (Evidence: fixture, Extraction: fixture, Runtime: local) and the fictional appointment C-104 / DEMO-ILS, 10:00–11:00 LA. | Appointment and service visible; fixture disclosed. |
-| 0:15–0:30 | Click **Seed demo data** (idempotent), then **Sync**. | Sync returns 202; status moves SCHEDULED/QUEUED → PROCESSING → **NEEDS_REVIEW** from the real backend (refresh/poll; do not narrate states you have not seen). |
-| 0:30–0:50 | Open the session. Walk the Session note, Progress record, Plan coverage, Follow-ups, Sources. | Evidence ids `ev_001`–`ev_005` labelled fixture; follow-up "Provider to bring another route-planning worksheet next session." |
-| 0:50–1:10 | Show Plan coverage and Checks. | `goal_transport` addressed, `goal_budget` partially addressed, **`goal_community` unknown** (not invented). Blocking issues: progress statement missing, confirmed duration missing. Billing: **estimate $75.00 (7500 cents), final amount —**. Approve button disabled / server returns 422 if forced. Revision **1**. |
-| 1:10–1:30 | Enter progress confirmation `The participant completed the planning task with verbal prompts.` and confirmed duration **90** minutes. Save. | Server returns revision **2**; amount **USD 112.50 (11250 cents)** at 7500 cents/hour; progress shown as provider-confirmed attestation (not transcript-derived); no blockers; Approve enabled. |
-| 1:30–1:45 | Approve revision 2. | 202 → "approval recorded, finalization pending", then **COMPLETED** once the Workflow wakes and finalizes. Approval record shows revision 2 and approver `provider_demo_001`. |
-| 1:45–2:00 | Download the export (JSON and HTML / print). | Export `finalized.bundleRevision = 2`, `billing.confirmedMinutes = 90`, `billing.amountCents = 11250`, `modes = {fixture, fixture, local}`. HTML shows $112.50 and the fixture disclosure; any markup in content is rendered as text. |
-
-Optional integrity beats (if time): saving again against revision 1 returns **409**; re-clicking Approve
-with the same request returns the same approval (no duplicate final record).
-
-## 4. Completion evidence to capture (§18.3)
-
-Build/commit id · `npm test` output · URL (`http://localhost:8787`) · evidence/extraction/runtime modes ·
-completed session id (`sess_` + 24 hex of sha256(provider ⧺ occurrence)) · approved revision 2 · confirmed
-90 min · USD 112.50 · export path `/api/sessions/<id>/export?format=json|html` · known limitations above ·
-unresolved gates: QA-31/32/33 (live OAuth/MCP/model), QA-34/36 (deployed smoke, real cron).
-
-## 5. Automated checks
-
-- In-process (real modules, Miniflare D1, fake Queue/Workflow, fixture clock): `npx vitest run tests/integration`.
-- Black-box against a running dev server: `node scripts/e2e/demo.mjs` (`BASE_URL` to override,
-  `POLL_SECONDS` to extend polling). Prints PASS/FAIL per step, the three modes and the outcome label; exits
-  non-zero on any failure. Needs a fresh local D1 because the demo session can only be approved once.
+Regression tests: `npx vitest run fixtures/schedule/day-scripts.test.ts tests/integration/day-scripts.test.ts`. They check script shape, the frozen partition rule against every script's `expect`, the overlay's scoping, and the recordings route playing a script end to end.

@@ -4,6 +4,9 @@
  * SESSION_SECRET; it only authorizes streaming audio into that one visit.
  * A stream token can never be used as a login cookie (different key, and the
  * identity "visit:<id>" maps to no provider).
+ * Transport: never in a URL (Cloudflare logs URLs). WebSocket subprotocol `vfa-token.<token>` or a
+ * first `auth` message; `Authorization: Bearer` on stop/status (src/api/visits.ts). The token is
+ * base64url + ".", so it is a valid subprotocol token.
  */
 import { signSession, verifySession } from "../security";
 

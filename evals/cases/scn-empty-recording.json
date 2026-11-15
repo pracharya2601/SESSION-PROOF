@@ -1,0 +1,14 @@
+{
+  "id": "scn-empty-recording",
+  "title": "Empty recording",
+  "purpose": "No transcript lines: workflow stops at NO_EVIDENCE, model is never called.",
+  "tags": [
+    "scenario",
+    "empty"
+  ],
+  "fromScenario": "empty-recording",
+  "sdpCode": "320",
+  "expect": {
+    "outcome": "no_evidence"
+  }
+}

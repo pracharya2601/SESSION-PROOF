@@ -82,7 +82,7 @@ describe("amend an approved session", () => {
     // documents + PDF reflect the amended revision
     const doc = await h.req(`/api/sessions/${id}/documents/invoice`, { cookie });
     expect(doc.status).toBe(200);
-    expect(JSON.stringify(doc.json.data.blocks)).toContain("Amended revision r4");
+    expect(JSON.stringify(doc.json.data.blocks)).toContain("Corrected invoice");
     const pdf = await h.req(`/api/sessions/${id}/files/invoice`, { cookie });
     expect(pdf.status).toBe(200);
     expect(pdf.headers.get("content-disposition")).toContain("_r4.pdf");

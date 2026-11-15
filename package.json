@@ -19,7 +19,8 @@
     "smoke:platform": "bash scripts/platform/smoke.sh",
     "preflight": "node scripts/platform/preflight.mjs",
     "smoke:deployed": "node --experimental-websocket scripts/band/deployed-smoke.mjs",
-    "deploy": "npm run typecheck && npm run build && wrangler deploy --env production"
+    "deploy": "npm run typecheck && npm run build && wrangler deploy --env production",
+    "eval:ai": "node scripts/ai-eval.mjs"
   },
   "dependencies": {
     "framer-motion": "^11.18.2",

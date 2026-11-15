@@ -12,9 +12,12 @@ export type Route =
   | { name: "runs" }
   | { name: "run"; runId: string }
   // band capture
-  | { name: "visit"; id?: string };
+  | { name: "visit"; id?: string }
+  // client-less band recordings (partitioned by the calendar)
+  | { name: "recordings" }
+  | { name: "recording"; id: string };
 
-export type NavKey = "today" | "visit" | "runs" | "files" | "clients" | "templates" | "connections" | "settings";
+export type NavKey = "today" | "visit" | "recordings" | "runs" | "files" | "clients" | "templates" | "connections" | "settings";
 
 const DETAIL: { re: RegExp; make: (v: string) => Route }[] = [
   { re: /^\/sessions\/([^/]+)$/, make: (id) => ({ name: "session", id }) },
@@ -22,6 +25,7 @@ const DETAIL: { re: RegExp; make: (v: string) => Route }[] = [
   { re: /^\/templates\/([^/]+)$/, make: (id) => ({ name: "template", id }) },
   { re: /^\/runs\/([^/]+)$/, make: (runId) => ({ name: "run", runId }) },
   { re: /^\/visit\/([^/]+)$/, make: (id) => ({ name: "visit", id }) },
+  { re: /^\/recordings\/([^/]+)$/, make: (id) => ({ name: "recording", id }) },
 ];
 
 const SIMPLE: Record<string, Route> = {
@@ -32,6 +36,7 @@ const SIMPLE: Record<string, Route> = {
   "/templates": { name: "templates" },
   "/runs": { name: "runs" },
   "/visit": { name: "visit" },
+  "/recordings": { name: "recordings" },
 };
 
 /** Parses `#/path?query`. Query strings (e.g. `#/connections?connected=google`) are ignored here; pages read them. */
@@ -62,6 +67,8 @@ export function routeKey(r: Route): string {
       return `run:${r.runId}`;
     case "visit":
       return r.id ? `visit:${r.id}` : "visit";
+    case "recording":
+      return `recording:${r.id}`;
     default:
       return r.name;
   }
@@ -77,6 +84,8 @@ export function navKeyOf(r: Route): NavKey {
       return "templates";
     case "run":
       return "runs";
+    case "recording":
+      return "recordings";
     default:
       return r.name;
   }
@@ -95,6 +104,8 @@ export const ROUTE_TITLES: Record<Route["name"], string> = {
   runs: "Runs",
   run: "Run detail",
   visit: "Record visit",
+  recordings: "Recordings",
+  recording: "Recording",
 };
 
 /** Hash links for detail routes (values are URL-encoded). */
@@ -104,4 +115,6 @@ export const hrefs = {
   run: (runId: string) => `#/runs/${encodeURIComponent(runId)}`,
   session: (id: string) => `#/sessions/${encodeURIComponent(id)}`,
   visit: (id?: string) => (id ? `#/visit/${encodeURIComponent(id)}` : "#/visit"),
+  recordings: "#/recordings",
+  recording: (id: string) => `#/recordings/${encodeURIComponent(id)}`,
 };

@@ -6,7 +6,10 @@
  * segments. Those segments become the evidence for the visit's appointment.
  *
  * Wire protocol, WS /api/visits/:visitId/stream
- *   auth: same-origin cookie (browser) OR ?token=<streamToken> (native bridge, e.g. GlassCam on iPhone).
+ *   auth (the URL carries no token; Cloudflare logs URLs):
+ *     Sec-WebSocket-Protocol: vfa-stream, vfa-token.<streamToken>   server echoes "vfa-stream" in the 101
+ *     OR first text message {"type":"auth","token":"<streamToken>"} within 5 s (else close 1008)
+ *     OR same-origin cookie (browser). Deprecated for one release: ?token=<streamToken>.
  *  client -> server
  *    text   {"type":"start","audioStartMs":<epoch ms of packet seq 0>}   first; AGAIN after every band
  *           reconnect (seq restarts at 0): the server starts a new run and moves the timeline by the gap
@@ -94,8 +97,14 @@ export type BandSegment = z.infer<typeof BandSegment>;
 /** Returned by POST /api/visits: the visit plus what a bridge needs to stream to it. */
 export const StartVisitResponse = z.object({
   visit: Visit,
-  /** Absolute wss:// (or ws:// locally) URL including ?token=. Treat as a secret; expires with the token. */
+  /** Absolute wss:// (or ws:// locally) URL, WITHOUT a token (safe to log). */
   streamUrl: z.string(),
+  /**
+   * Signed token scoped to this one visit (secret; never put it in a URL). Send it as the
+   * `vfa-token.<token>` subprotocol (or the first `auth` message), and as
+   * `Authorization: Bearer <token>` on …/stop and …/status.
+   */
+  streamToken: z.string(),
   streamTokenExpiresAt: Instant,
 });
 export type StartVisitResponse = z.infer<typeof StartVisitResponse>;

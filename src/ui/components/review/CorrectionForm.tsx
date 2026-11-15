@@ -152,7 +152,7 @@ export function CorrectionForm(props: {
               ))}
             </div>
             <p id="rv-goals-hint" className="rv-muted rv-small rv-pd-hint">
-              Recorded as your confirmation, shown as &ldquo;provider confirmed&rdquo; — never as transcript evidence.
+              Recorded as your confirmation, shown as &ldquo;provider-confirmed (not evidence)&rdquo; — never as transcript evidence.
             </p>
           </fieldset>
         )}
@@ -178,7 +178,7 @@ export function CorrectionForm(props: {
         <Field
           id="rv-progress"
           label="Progress confirmation"
-          hint="Your own statement of progress. It is recorded as provider confirmed."
+          hint="Your own statement of progress. It is recorded as provider-confirmed (not evidence)."
         >
           <Textarea
             rows={3}

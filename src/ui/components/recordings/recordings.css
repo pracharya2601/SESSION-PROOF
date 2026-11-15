@@ -1,0 +1,87 @@
+/* Recordings list + detail timeline + archive/delete controls. Prefix: rc- */
+.rc-page { display: flex; flex-direction: column; gap: var(--sp-5); min-width: 0; }
+.rc-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--sp-3); }
+.rc-h2 { display: flex; align-items: center; gap: var(--sp-2); margin: 0 0 var(--sp-4); font-size: var(--text-md); font-weight: 600; }
+
+/* ---------- chips */
+.rc-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.rc-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: var(--r-full); font-size: var(--text-xs); line-height: 1.5; border: 1px solid var(--border); background: var(--surface-2); color: var(--text-2); white-space: nowrap; }
+.rc-chip-success { color: var(--success); border-color: color-mix(in srgb, var(--success) 35%, transparent); }
+.rc-chip-warning { color: var(--warning); border-color: color-mix(in srgb, var(--warning) 40%, transparent); }
+.rc-chip-info { color: var(--info); border-color: color-mix(in srgb, var(--info) 35%, transparent); }
+.rc-chip-danger { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 40%, transparent); }
+.rc-chip-archived { color: var(--muted); border-style: dashed; }
+
+/* ---------- list */
+.rc-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
+.rc-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--sp-3); padding: var(--sp-3) var(--sp-4); border-radius: var(--r-lg); border: 1px solid var(--border); background: var(--surface); backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur); transition: border-color var(--dur), background var(--dur); }
+.rc-row:hover { border-color: var(--border-strong); background: var(--surface-hover); }
+.rc-row.is-archived { opacity: 0.75; border-style: dashed; }
+.rc-row-link { display: flex; flex-direction: column; gap: 6px; min-width: 0; color: inherit; text-decoration: none; border-radius: var(--r-sm); }
+.rc-row-link:focus-visible { outline: none; box-shadow: var(--ring); }
+.rc-row-title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px var(--sp-3); font-weight: 600; }
+.rc-row-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px var(--sp-3); font-size: var(--text-sm); color: var(--text-2); }
+.rc-row-actions { display: flex; align-items: center; gap: var(--sp-1); }
+@media (max-width: 560px) {
+  .rc-row { grid-template-columns: minmax(0, 1fr); }
+  .rc-row-actions { justify-content: flex-end; }
+}
+
+/* ---------- timeline */
+.rc-tl { display: grid; grid-template-columns: minmax(84px, 140px) minmax(0, 1fr); gap: 6px var(--sp-3); align-items: center; }
+.rc-tl-axis { position: relative; height: 18px; border-bottom: 1px solid var(--border); }
+.rc-tl-tick { position: absolute; bottom: 2px; transform: translateX(-50%); font-size: 11px; color: var(--muted); white-space: nowrap; }
+.rc-tl-tick::after { content: ""; position: absolute; left: 50%; bottom: -3px; width: 1px; height: 4px; background: var(--border-strong); }
+.rc-tl-label { display: flex; flex-direction: column; gap: 2px; min-width: 0; font-size: var(--text-sm); }
+.rc-tl-label .mono { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rc-tl-label a { color: var(--accent-strong); text-decoration: none; }
+.rc-tl-label a:hover { text-decoration: underline; }
+.rc-tl-track { position: relative; height: 30px; border-radius: var(--r-sm); background: var(--surface-2); overflow: hidden; }
+.rc-tl-window { position: absolute; top: 0; bottom: 0; background: color-mix(in srgb, var(--accent) 12%, transparent); border-left: 2px solid color-mix(in srgb, var(--accent) 55%, transparent); border-right: 2px solid color-mix(in srgb, var(--accent) 55%, transparent); }
+.rc-tl-window.is-clip-start { border-left-style: dashed; }
+.rc-tl-window.is-clip-end { border-right-style: dashed; }
+.rc-tl-window.is-dismissed { background: repeating-linear-gradient(135deg, transparent 0 6px, color-mix(in srgb, var(--muted) 14%, transparent) 6px 12px); border-color: var(--border-strong); }
+.rc-tl-seg { position: absolute; top: 6px; bottom: 6px; border-radius: 4px; border: 0; padding: 0; cursor: pointer; min-width: 4px; }
+.rc-tl-seg:focus-visible { outline: none; box-shadow: var(--ring); z-index: 2; }
+.rc-tl-seg.is-selected { box-shadow: 0 0 0 2px var(--text); z-index: 2; }
+.rc-tone-assigned { background: var(--success); }
+.rc-tone-suggested { background: var(--info); background-image: repeating-linear-gradient(135deg, transparent 0 4px, rgba(255, 255, 255, 0.25) 4px 8px); }
+.rc-tone-ambiguous { background: var(--warning); }
+.rc-tone-unassigned { background: var(--muted); }
+.rc-tone-pending { background: var(--border-strong); }
+.rc-legend { display: flex; flex-wrap: wrap; gap: var(--sp-3); margin-top: var(--sp-3); font-size: var(--text-xs); color: var(--text-2); }
+.rc-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.rc-legend i { width: 12px; height: 8px; border-radius: 2px; display: inline-block; }
+@media (max-width: 560px) {
+  .rc-tl { grid-template-columns: minmax(0, 1fr); }
+  .rc-tl-axis-pad { display: none; }
+}
+
+/* ---------- segments list */
+.rc-segs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
+.rc-seg { display: grid; grid-template-columns: 12px minmax(0, 1fr); gap: var(--sp-3); padding: var(--sp-2) var(--sp-3); border-radius: var(--r-md); border: 1px solid transparent; }
+.rc-seg.is-selected { border-color: var(--border-strong); background: var(--surface-2); }
+.rc-seg-dot { width: 10px; height: 10px; border-radius: 3px; margin-top: 5px; }
+.rc-seg-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px var(--sp-2); font-size: var(--text-xs); color: var(--muted); }
+.rc-seg-text { margin: 2px 0 0; font-size: var(--text-sm); color: var(--text); overflow-wrap: anywhere; }
+.rc-seg-text.is-muted { color: var(--subtle); font-style: italic; }
+.rc-seg-head a { color: var(--accent-strong); text-decoration: none; }
+
+/* ---------- suggestion cards */
+.rc-sugs { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr)); gap: var(--sp-3); }
+.rc-sug { display: flex; flex-direction: column; gap: var(--sp-3); }
+.rc-sug-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-2); }
+.rc-sug-client { font-size: var(--text-lg); font-weight: 700; }
+.rc-sug-rationale { margin: 0; font-size: var(--text-sm); color: var(--text-2); }
+.rc-sug-actions { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+.rc-sug-pick { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--sp-2); }
+.rc-sug-pick > :first-child { flex: 1 1 200px; }
+
+/* ---------- confirm delete */
+.rc-summary { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px var(--sp-4); margin: 0 0 var(--sp-4); font-size: var(--text-sm); }
+.rc-summary dt { color: var(--muted); }
+.rc-summary dd { margin: 0; overflow-wrap: anywhere; }
+.rc-notes { margin: 0; padding-left: 1.1em; display: flex; flex-direction: column; gap: 6px; font-size: var(--text-sm); color: var(--text-2); }
+
+/* ---------- small icon actions (Today cards, run rows) */
+.rc-icon-actions { display: inline-flex; align-items: center; gap: 2px; }

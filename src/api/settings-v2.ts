@@ -10,8 +10,12 @@ import {
   AiProviderId,
   AiSettings,
   DEFAULT_AI_SETTINGS,
+  EMPTY_PROVIDER_PROFILE,
   EmailSettings,
+  ProviderProfileInput,
   StorageSettings,
+  missingProfileFields,
+  type BusinessProfileView,
   type SettingsBundle,
 } from "../contracts";
 import { aiProviderStatuses } from "../ai/providers";
@@ -111,6 +115,23 @@ export function settingsV2Routes(deps: ApiDeps): Hono<AppBindings> {
     const providerId = c.get("actor").providerId;
     await deps.repo.saveAiSettings(providerId, p.data, deps.clock.now());
     return ok(c, await bundle(deps, providerId));
+  });
+
+  // v5: business profile printed on invoices (vendor #, address, logo, numbering).
+  async function profileView(providerId: string): Promise<BusinessProfileView> {
+    const stored = await deps.repo.getProviderProfile(providerId);
+    const { providerId: _p, updatedAt, ...profile } = stored ?? { ...EMPTY_PROVIDER_PROFILE, providerId, updatedAt: null };
+    return { profile, missing: missingProfileFields(profile), updatedAt };
+  }
+
+  app.get("/api/settings/business-profile", async (c) => ok(c, await profileView(c.get("actor").providerId)));
+
+  app.put("/api/settings/business-profile", async (c) => {
+    const p = await parseBody(c, ProviderProfileInput);
+    if (!p.ok) return p.res;
+    const providerId = c.get("actor").providerId;
+    await deps.repo.saveProviderProfile(providerId, p.data, deps.clock.now());
+    return ok(c, await profileView(providerId));
   });
 
   return app;

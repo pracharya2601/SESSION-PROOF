@@ -1,0 +1,46 @@
+{
+  "id": "scn-334-training",
+  "title": "SDP 334 Individual Training and Education (progress stated)",
+  "purpose": "Progress stated explicitly by the provider; only duration should block.",
+  "tags": [
+    "scenario",
+    "sdp"
+  ],
+  "fromScenario": "sdp-334-training",
+  "sdpCode": "334",
+  "fake": {
+    "keywords": {
+      "goal_budget_tracking": [
+        "budget",
+        "receipts",
+        "spent"
+      ],
+      "goal_bill_reading": [
+        "bill",
+        "due"
+      ]
+    }
+  },
+  "expect": {
+    "mustAddress": [
+      "goal_budget_tracking",
+      "goal_bill_reading"
+    ],
+    "forbiddenClaims": [
+      {
+        "id": "utility-bill-done",
+        "pattern": "(read|paid|completed)[^.]*utility bill",
+        "kind": "discussed_not_achieved"
+      }
+    ],
+    "requiredCitations": [
+      {
+        "target": "progress",
+        "anyOf": [
+          "ev_005"
+        ]
+      }
+    ],
+    "approvableAfterDuration": true
+  }
+}

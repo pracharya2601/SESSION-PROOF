@@ -39,7 +39,9 @@
     "AI_MODEL": "claude-sonnet-5-5",
     "AUTH_MODE": "dev",
     "APP_ORIGIN": "http://localhost:8787",
-    "RUNTIME_MODE": "local"
+    "RUNTIME_MODE": "local",
+    // DEMO: inject a C-104 calendar slot covering "now" so a live recording always lands on an event.
+    "DEMO_CALENDAR_NOW_SLOT": "1"
   },
   // The default (top-level) config is LOCAL DEV ONLY: dev auth, synthetic data.
   // Never publish it on a public URL.
@@ -105,6 +107,8 @@
         "AUTH_MODE": "public",
         "PUBLIC_PROVIDER_ID": "provider_demo_001",
         "RUNTIME_MODE": "deployed",
+        // DEMO calendar: a C-104 slot covering "now" (src/schedule demo-calendar.ts).
+        "DEMO_CALENDAR_NOW_SLOT": "1",
         // The one public origin. All three name the same host: https for the app/device API,
         // wss for the band stream.
         "APP_ORIGIN": "https://field-assist.prakashacharya.com",

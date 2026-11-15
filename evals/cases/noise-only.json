@@ -1,0 +1,93 @@
+{
+  "id": "noise-only",
+  "title": "Noisy transcript with no content",
+  "purpose": "Only fillers and noise tags: every goal must stay unknown and nothing may be invented; not approvable.",
+  "tags": [
+    "empty",
+    "noise"
+  ],
+  "sdpCode": "320",
+  "client": {
+    "clientRef": "EV-NOISE-01",
+    "displayName": "Pat Evalfield (synthetic)",
+    "preferredName": "Pat"
+  },
+  "plan": {
+    "serviceCode": "CA-SDP-320",
+    "serviceDescription": "Community Living Supports: morning routine (synthetic plan)",
+    "goals": [
+      {
+        "goalId": "goal_routine",
+        "objective": "Complete a morning routine checklist."
+      },
+      {
+        "goalId": "goal_meds",
+        "objective": "Take morning medication at the set time."
+      }
+    ]
+  },
+  "transcript": [
+    {
+      "t": 2,
+      "d": 5,
+      "speaker": null,
+      "text": "[inaudible]"
+    },
+    {
+      "t": 8,
+      "d": 5,
+      "speaker": "Speaker 0",
+      "text": "um"
+    },
+    {
+      "t": 14,
+      "d": 5,
+      "speaker": "Speaker 1",
+      "text": "uh huh"
+    },
+    {
+      "t": 20,
+      "d": 5,
+      "speaker": null,
+      "text": "(background noise)"
+    },
+    {
+      "t": 26,
+      "d": 5,
+      "speaker": "Speaker 0",
+      "text": "..."
+    },
+    {
+      "t": 32,
+      "d": 5,
+      "speaker": "Speaker 1",
+      "text": "mm-hmm"
+    },
+    {
+      "t": 38,
+      "d": 5,
+      "speaker": null,
+      "text": "[crosstalk]"
+    },
+    {
+      "t": 44,
+      "d": 5,
+      "speaker": "Speaker 0",
+      "text": "okay"
+    }
+  ],
+  "expect": {
+    "mustStayUnknown": [
+      "goal_routine",
+      "goal_meds"
+    ],
+    "forbiddenClaims": [
+      {
+        "id": "invented",
+        "pattern": "routine|medication|checklist|completed",
+        "kind": "invented_activity"
+      }
+    ],
+    "approvableAfterDuration": false
+  }
+}

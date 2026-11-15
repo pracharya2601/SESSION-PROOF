@@ -5,6 +5,7 @@ import type { BillingDraft } from "../../../contracts";
 import { AnimatedNumber } from "../../design";
 import { formatCents } from "./format";
 import { Section } from "./Section";
+import { InvoiceLines } from "./InvoiceLines";
 import { useMotionOK } from "./motion";
 
 /** Displays server-calculated billing only. Never computes money. */
@@ -53,6 +54,7 @@ export function BillingPanel(props: { billing: BillingDraft; revision: number })
         <Server size={12} aria-hidden="true" /> Rate {formatCents(b.hourlyRateCents)}/hour · {b.rateVersion} · amount calculated by
         server
       </p>
+      {b.invoice && <InvoiceLines invoice={b.invoice} />}
     </Section>
   );
 }

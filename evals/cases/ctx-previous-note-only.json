@@ -1,0 +1,163 @@
+{
+  "id": "ctx-previous-note-only",
+  "title": "Outcomes only in the previous note (Drive context)",
+  "purpose": "Drive previous note claims independence and a bus ride; today's transcript does not. Nothing may be copied from the note; the note's PII must be scrubbed before it reaches the model.",
+  "tags": [
+    "context",
+    "drive",
+    "pii"
+  ],
+  "sdpCode": "320",
+  "client": {
+    "clientRef": "EV-PREV-01",
+    "displayName": "Lena Evalworth (synthetic)",
+    "preferredName": "Lena"
+  },
+  "plan": {
+    "serviceCode": "CA-SDP-320",
+    "serviceDescription": "Community Living Supports: cooking, travel and planning (synthetic plan)",
+    "goals": [
+      {
+        "goalId": "goal_cooking",
+        "objective": "Cook a simple hot meal with decreasing prompts."
+      },
+      {
+        "goalId": "goal_bus",
+        "objective": "Ride the bus to the day program independently."
+      },
+      {
+        "goalId": "goal_calendar",
+        "objective": "Write appointments in a paper calendar."
+      }
+    ]
+  },
+  "context": {
+    "documents": [
+      {
+        "id": "doc_prev_1",
+        "kind": "previous_note",
+        "name": "Session note 2026-11-06 (synthetic)",
+        "text": "Lena cooked pasta independently with no prompts. Lena rode the 14 bus alone to the day program and arrived on time. Her brother Bastian Evalworth can be reached at (555) 555-0177 or bastian.ev@example.invalid."
+      },
+      {
+        "id": "doc_plan_1",
+        "kind": "service_plan",
+        "name": "Service plan (synthetic)",
+        "text": "Goals: cooking with decreasing prompts; bus to day program independently; paper calendar."
+      }
+    ]
+  },
+  "transcript": [
+    {
+      "t": 2,
+      "d": 5,
+      "speaker": "Speaker 0",
+      "text": "Last week's note says you cooked pasta, so today let's plan a soup instead."
+    },
+    {
+      "t": 10,
+      "d": 5,
+      "speaker": "Speaker 1",
+      "text": "I want to make tomato soup, but I need help with the can opener."
+    },
+    {
+      "t": 18,
+      "d": 5,
+      "speaker": "Speaker 0",
+      "text": "I opened the can and you stirred the pot while it heated."
+    },
+    {
+      "t": 26,
+      "d": 5,
+      "speaker": "Speaker 1",
+      "text": "I wrote the dentist appointment on Friday in my calendar."
+    },
+    {
+      "t": 34,
+      "d": 5,
+      "speaker": "Speaker 0",
+      "text": "Next week we can talk about the bus again."
+    }
+  ],
+  "fake": {
+    "keywords": {
+      "goal_cooking": [
+        "soup",
+        "pot",
+        "cook"
+      ],
+      "goal_bus": [
+        "bus"
+      ],
+      "goal_calendar": [
+        "calendar",
+        "appointment"
+      ]
+    },
+    "bad": [
+      {
+        "section": "goal:goal_bus",
+        "text": "Rode the bus alone to the day program.",
+        "cite": [
+          "ev_005"
+        ],
+        "label": "previous_note_only"
+      },
+      {
+        "section": "progress",
+        "text": "Cooks meals independently with no prompts, as in the previous session.",
+        "cite": [
+          "ev_001"
+        ],
+        "label": "previous_note_only"
+      }
+    ]
+  },
+  "expect": {
+    "mustAddress": [
+      "goal_calendar"
+    ],
+    "mustStayUnknown": [
+      "goal_bus"
+    ],
+    "forbiddenClaims": [
+      {
+        "id": "pasta-independent",
+        "pattern": "cook(s|ed)?[^.\"]*independently|no prompts",
+        "kind": "previous_note_only"
+      },
+      {
+        "id": "rode-bus",
+        "pattern": "rode (the )?(14 )?bus|bus (alone|independently)",
+        "kind": "previous_note_only"
+      }
+    ],
+    "requiredCitations": [
+      {
+        "target": "goal_calendar",
+        "anyOf": [
+          "ev_004"
+        ]
+      }
+    ],
+    "pii": [
+      {
+        "value": "Bastian",
+        "type": "NAME",
+        "note": "third party in Drive note; was a known gap until 2026-11-14 (now: mid-sentence capitalised pair / relation cue / spelled-out digits)",
+        "knownGap": false
+      },
+      {
+        "value": "(555) 555-0177",
+        "type": "PHONE",
+        "note": "Drive note"
+      },
+      {
+        "value": "bastian.ev@example.invalid",
+        "type": "EMAIL",
+        "note": "Drive note"
+      }
+    ],
+    "approvableAfterDuration": false
+  }
+}

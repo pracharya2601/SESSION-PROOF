@@ -121,10 +121,10 @@ describe("provider goal confirmation (assembly + documents)", () => {
 
     const coverage = b.documents.sections.find((s) => s.key === "plan_coverage")!.lines;
     const line = coverage.find((l) => l.text.startsWith("Practice budgeting."))!;
-    expect(line).toMatchObject({ text: "Practice budgeting. — Addressed (provider confirmed)", origin: "provider_attestation", attestationIds: ["att_g1"], evidenceIds: [] });
+    expect(line).toMatchObject({ text: "Practice budgeting. — Addressed (provider-confirmed, not evidence)", origin: "provider_attestation", attestationIds: ["att_g1"], evidenceIds: [] });
     const note = b.documents.sections.find((s) => s.key === "session_note")!.lines;
-    expect(note).toContainEqual(expect.objectContaining({ text: "Goal addressed (provider confirmed): Practice budgeting.", origin: "provider_attestation", attestationIds: ["att_g1"] }));
-    expect(note).toContainEqual(expect.objectContaining({ text: "Activity summary (provider written): Reviewed the weekly food budget.", origin: "provider_attestation" }));
+    expect(note).toContainEqual(expect.objectContaining({ text: "Goal addressed (provider-confirmed, not evidence): Practice budgeting.", origin: "provider_attestation", attestationIds: ["att_g1"] }));
+    expect(note).toContainEqual(expect.objectContaining({ text: "Activity summary (provider-written, not evidence): Reviewed the weekly food budget.", origin: "provider_attestation" }));
     expect(note.some((l) => l.text.startsWith("No supported activities"))).toBe(false);
   });
 

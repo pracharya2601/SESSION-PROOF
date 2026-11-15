@@ -1,6 +1,8 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AnimatePresence, LayoutGroup, motion, useReducedMotion } from "framer-motion";
 import {
+  Archive,
+  ArchiveRestore,
   ArrowRight,
   BadgeDollarSign,
   CalendarClock,
@@ -13,6 +15,7 @@ import {
   RefreshCw,
   Sparkles,
   TimerReset,
+  Trash2,
 } from "lucide-react";
 import type { SessionStatus, SessionSummary, SyncSettingsView } from "../../contracts";
 import { api, ApiClientError, SERVER_RECOVERED_EVENT } from "../api";
@@ -35,8 +38,10 @@ import {
   fadeUp,
   springy,
   stagger,
+  Switch,
   useToast,
 } from "../design";
+import { ConfirmDelete } from "../components/recordings/ConfirmDelete";
 
 import { nextPollDelay, POLL_FAST_MS, POLL_MAX } from "./todayPolling";
 
@@ -110,6 +115,11 @@ export default function Today({ devMode }: { devMode: boolean }) {
   const [syncing, setSyncing] = useState(false);
   const [syncView, setSyncView] = useState<SyncSettingsView | null>(null);
   const [celebrate, setCelebrate] = useState<Record<string, number>>({});
+  // Archive: hidden by default; "Show archived" lists them with an Unarchive control.
+  const [showArchived, setShowArchived] = useState(false);
+  const showArchivedRef = useRef(false);
+  const [archivedIds, setArchivedIds] = useState<Set<string>>(() => new Set());
+  const [confirmDelete, setConfirmDelete] = useState<SessionSummary | null>(null);
 
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pollCount = useRef(0);
@@ -150,7 +160,7 @@ export default function Today({ devMode }: { devMode: boolean }) {
     const all: SessionSummary[] = [];
     let cursor: string | undefined;
     for (let page = 0; page < 10; page++) {
-      const res = await api.listSessions(cursor);
+      const res = await api.listSessions(cursor, showArchivedRef.current ? { includeArchived: true } : undefined);
       all.push(...res.sessions);
       if (!res.nextCursor) break;
       cursor = res.nextCursor;
@@ -280,6 +290,50 @@ export default function Today({ devMode }: { devMode: boolean }) {
     return () => window.removeEventListener(SERVER_RECOVERED_EVENT, onRecovered);
   }, [refresh]);
 
+  const loadArchivedIds = useCallback(async () => {
+    try {
+      const r = await api.listArchived("session");
+      if (mounted.current) setArchivedIds(new Set(r.items.map((i) => i.id)));
+    } catch {
+      /* the cards just won't show the Archived badge */
+    }
+  }, []);
+
+  function onShowArchived(on: boolean) {
+    showArchivedRef.current = on;
+    setShowArchived(on);
+    if (on) void loadArchivedIds();
+    void refresh();
+  }
+
+  const refreshRef = useRef(refresh);
+  refreshRef.current = refresh;
+  /** Stable for the memoized cards. */
+  const onArchiveToggle = useCallback(
+    async (s: SessionSummary, archived: boolean) => {
+      try {
+        if (archived) {
+          await api.unarchive("session", s.id);
+          toast.success("Session restored", `Client ${s.clientRef} is back on Today.`);
+        } else {
+          await api.archive("session", s.id);
+          toast.toast({
+            title: "Session archived",
+            description: `Client ${s.clientRef} is hidden. Turn on Show archived to find it.`,
+            tone: "info",
+            action: { label: "Undo", onClick: () => void api.unarchive("session", s.id).then(() => refreshRef.current()) },
+          });
+        }
+        await loadArchivedIds();
+        await refreshRef.current();
+      } catch (err) {
+        toast.error("Could not update the session", apiErrorDetail(err));
+      }
+    },
+    [toast, loadArchivedIds],
+  );
+  const onAskDelete = useCallback((s: SessionSummary) => setConfirmDelete(s), []);
+
   async function onSeed() {
     setSeeding(true);
     try {
@@ -370,6 +424,7 @@ export default function Today({ devMode }: { devMode: boolean }) {
           <span>{syncChipText(syncView)}</span>
           <ArrowRight size={12} aria-hidden="true" className="sync-chip-arrow" />
         </a>
+        <Switch checked={showArchived} onChange={onShowArchived} label="Show archived" />
         <AnimatePresence>
           {polling && (
             <motion.span
@@ -513,7 +568,14 @@ export default function Today({ devMode }: { devMode: boolean }) {
                 <motion.ul className="session-grid" aria-label={g.title} variants={stagger} initial="hidden" animate="show">
                   <AnimatePresence initial={false} mode="popLayout">
                     {list.map((s) => (
-                      <SessionCard key={s.id} s={s} burst={celebrate[s.id] ?? 0} />
+                      <SessionCard
+                        key={s.id}
+                        s={s}
+                        burst={celebrate[s.id] ?? 0}
+                        archived={showArchived && archivedIds.has(s.id)}
+                        onArchiveToggle={onArchiveToggle}
+                        onDelete={onAskDelete}
+                      />
                     ))}
                   </AnimatePresence>
                 </motion.ul>
@@ -521,6 +583,36 @@ export default function Today({ devMode }: { devMode: boolean }) {
             );
           })}
         </LayoutGroup>
+      )}
+
+      {confirmDelete && (
+        <ConfirmDelete
+          open={!!confirmDelete}
+          onClose={() => setConfirmDelete(null)}
+          title="Delete draft session?"
+          summary={[
+            { label: "Client", value: <span className="mono">{confirmDelete.clientRef}</span> },
+            { label: "When", value: formatTimeRange(confirmDelete.startAt, confirmDelete.endAt, confirmDelete.timezone) },
+            { label: "Status", value: confirmDelete.status },
+          ]}
+          notes={[
+            "Deletes the draft, its evidence excerpts, run history, review links and notifications.",
+            "Recording segments that fed it become unassigned (their text is deleted 24 h later).",
+            "The calendar slot is dismissed, so it is not drafted again from the recordings you already have. A new recording of that slot starts a fresh draft.",
+            "Approved sessions can't be deleted; archive them instead. An audit entry (who, when, which session) is kept.",
+          ]}
+          onConfirm={async () => {
+            await api.deleteSession(confirmDelete.id);
+            toast.success("Session deleted", `Draft for ${confirmDelete.clientRef} removed.`);
+            await refresh();
+          }}
+          onArchiveInstead={async () => {
+            await api.archive("session", confirmDelete.id);
+            toast.success("Session archived");
+            await loadArchivedIds();
+            await refresh();
+          }}
+        />
       )}
     </section>
   );
@@ -555,7 +647,23 @@ function Stat({
 }
 
 /** Memoized: an unrelated state change on Today (sync button, poll chip) does not re-render every card. */
-const SessionCard = memo(function SessionCard({ s, burst }: { s: SessionSummary; burst: number }) {
+const LOCKED = new Set<SessionStatus>(["APPROVED", "COMPLETED"]);
+const BUSY = new Set<SessionStatus>(["QUEUED", "PROCESSING"]);
+
+const SessionCard = memo(function SessionCard({
+  s,
+  burst,
+  archived,
+  onArchiveToggle,
+  onDelete,
+}: {
+  s: SessionSummary;
+  burst: number;
+  archived: boolean;
+  onArchiveToggle: (s: SessionSummary, archived: boolean) => Promise<void>;
+  onDelete: (s: SessionSummary) => void;
+}) {
+  const [archBusy, setArchBusy] = useState(false);
   const reduce = useReducedMotion();
   const estimate = isEstimate(s);
   const href = `#/sessions/${encodeURIComponent(s.id)}`;
@@ -584,7 +692,10 @@ const SessionCard = memo(function SessionCard({ s, burst }: { s: SessionSummary;
             <span className="sc-label">Client</span>
             <h3 className="mono sc-ref">{s.clientRef}</h3>
           </div>
-          <StatusPill status={s.status} />
+          <span className="row" style={{ gap: "var(--sp-2)" }}>
+            {archived && <Badge tone="neutral">Archived</Badge>}
+            <StatusPill status={s.status} />
+          </span>
         </div>
         <div className="sc-meta">
           <span className="sc-meta-item">
@@ -623,11 +734,38 @@ const SessionCard = memo(function SessionCard({ s, burst }: { s: SessionSummary;
               </>
             )}
           </div>
-          <a className={s.status === "NEEDS_REVIEW" ? "ds-btn ds-btn-primary ds-btn-sm" : "ds-btn ds-btn-secondary ds-btn-sm"} href={href}>
-            {cta}
-            <span className="sr-only"> session for client {s.clientRef}</span>
-            <ArrowRight size={14} aria-hidden="true" />
-          </a>
+          <span className="rc-icon-actions">
+            <Button
+              size="sm"
+              variant="ghost"
+              iconOnly
+              aria-label={`${archived ? "Unarchive" : "Archive"} session for client ${s.clientRef}`}
+              title={archived ? "Unarchive" : "Archive"}
+              icon={archived ? <ArchiveRestore size={14} /> : <Archive size={14} />}
+              loading={archBusy}
+              onClick={() => {
+                setArchBusy(true);
+                void onArchiveToggle(s, archived).finally(() => setArchBusy(false));
+              }}
+            />
+            {!LOCKED.has(s.status) && (
+              <Button
+                size="sm"
+                variant="ghost"
+                iconOnly
+                aria-label={`Delete draft session for client ${s.clientRef}`}
+                title={BUSY.has(s.status) ? "Processing: delete when it finishes" : "Delete draft"}
+                icon={<Trash2 size={14} />}
+                disabled={BUSY.has(s.status)}
+                onClick={() => onDelete(s)}
+              />
+            )}
+            <a className={s.status === "NEEDS_REVIEW" ? "ds-btn ds-btn-primary ds-btn-sm" : "ds-btn ds-btn-secondary ds-btn-sm"} href={href}>
+              {cta}
+              <span className="sr-only"> session for client {s.clientRef}</span>
+              <ArrowRight size={14} aria-hidden="true" />
+            </a>
+          </span>
         </div>
       </Card>
     </motion.li>

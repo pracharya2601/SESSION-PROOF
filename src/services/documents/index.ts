@@ -22,6 +22,7 @@ import type { Repository } from "../../db/repository";
 import type { ApiDeps } from "../../api/deps";
 import { BUILTIN_TEMPLATES } from "../../documents/index";
 import { ServiceError } from "../approval/index";
+import { assignInvoiceNumber, loadProviderProfile } from "../profile/index";
 
 export type DocumentDeps = Pick<ApiDeps, "repo" | "clock">;
 
@@ -95,7 +96,29 @@ export async function loadDocModelInputForSession(
   }
   // Template choice is display-only, so it follows the live client record.
   const template = await resolveTemplate(repo, session.providerId, kind, liveClient, templateId);
-  return { bundle, final, approval, providerIdentity, client, template };
+
+  // v5: invoice number + business profile. A final uses the profile frozen with its number
+  // (assigned now if an older final has none); a draft uses the live profile and has no number.
+  let invoiceNumber: string | null = null;
+  let profile = null;
+  if (final) {
+    const rec =
+      (await safe(() => repo.getInvoiceNumber(final.sessionId, final.bundleRevision))) ??
+      (await assignInvoiceNumber(repo, session.providerId, final.sessionId, final.bundleRevision, deps.clock.now()));
+    invoiceNumber = rec?.invoiceNumber ?? null;
+    profile = rec?.profile ?? null;
+  }
+  if (!profile) profile = await loadProviderProfile(repo, session.providerId);
+  const superseded = kind === "approval_record" ? ((await safe(() => repo.listSupersededRevisions(session.id))) ?? []) : [];
+  return { bundle, final, approval, providerIdentity, client, template, profile, invoiceNumber, superseded };
+}
+
+async function safe<T>(fn: () => Promise<T> | undefined): Promise<T | null> {
+  try {
+    return (await fn()) ?? null;
+  } catch {
+    return null;
+  }
 }
 
 export async function loadDocModelInput(

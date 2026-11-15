@@ -106,6 +106,41 @@
   background: repeating-linear-gradient(-45deg, #f6effc, #f6effc 8px, #efe4fa 8px, #efe4fa 16px);
 }
 
+/* letterhead (invoice / note) */
+.dp-lh {
+  display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; flex: none;
+  padding-bottom: calc(var(--dp-gap) * 1.1); margin-bottom: calc(var(--dp-gap) * 1.2);
+  border-bottom: 2px solid var(--dp-accent);
+}
+.dp-lh-biz { min-width: 0; flex: 1 1 56%; font-size: 0.85em; color: var(--dp-muted); line-height: 1.4; }
+.dp-lh-logo { display: block; max-height: 0.62in; max-width: 2in; object-fit: contain; margin-bottom: 6px; }
+.dp-lh-name { font-size: 1.45em; font-weight: 700; color: var(--dp-ink); line-height: 1.2; margin-bottom: 3px; overflow-wrap: anywhere; }
+.dp-lh-line { overflow-wrap: anywhere; }
+.dp-lh-doc { flex: 0 0 auto; max-width: 44%; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+.dp-lh-title { font-size: 2em; line-height: 1; font-weight: 800; letter-spacing: .06em; color: var(--dp-accent); text-align: right; }
+.dp-lh-doc .dp-meta { max-width: none; }
+.dp-placeholder { color: #9a6200 !important; font-style: italic; }
+
+/* draft watermark */
+.dp-watermark {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  pointer-events: none; z-index: 2; overflow: hidden;
+}
+.dp-watermark span {
+  transform: rotate(-38deg); white-space: nowrap; font-size: 0.6in; font-weight: 800; letter-spacing: .06em;
+  text-transform: uppercase; color: rgba(185, 28, 28, 0.13); user-select: none;
+}
+
+/* parties (bill to / participant / authorization) */
+.dp-parties { display: grid; gap: 18px; }
+.dp-party { min-width: 0; font-size: 0.92em; color: var(--dp-ink-2); }
+.dp-party-label {
+  font-size: 0.78em; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--dp-accent);
+  padding-bottom: 3px; margin-bottom: 4px; border-bottom: 1px solid var(--dp-rule);
+}
+.dp-party-line { overflow-wrap: anywhere; white-space: pre-wrap; }
+.dp-party-first { font-weight: 700; color: var(--dp-ink); }
+
 /* body */
 .dp-body { flex: 1 1 0; min-height: 0; overflow: hidden; }
 .dp-blk { display: flow-root; padding-bottom: var(--dp-gap); }
@@ -147,6 +182,14 @@
 .dp-compact .dp-table th, .dp-compact .dp-table td { padding: 4px 6px; }
 .dp-table tbody tr:nth-child(even) td { background: #fafbfc; }
 .dp-table .dp-r { text-align: right; }
+.dp-table-grouped tbody tr:nth-child(even) td { background: transparent; }
+.dp-table-grouped .dp-row-item td { background: var(--dp-soft) !important; color: var(--dp-ink); }
+.dp-table-grouped .dp-row-item td:nth-child(3) { font-weight: 650; }
+.dp-table-grouped .dp-row-sub td { border-bottom-color: transparent; padding-top: 3px; padding-bottom: 3px; font-size: 0.95em; }
+.dp-table-grouped .dp-row-sub td:nth-child(3) { padding-left: 20px; color: var(--dp-muted); }
+.dp-table-grouped .dp-row-sub:last-child td { border-bottom-color: var(--dp-rule); }
+.dp-ref { font-size: 0.68em; color: var(--dp-accent); margin-left: 2px; vertical-align: super; line-height: 0; }
+.dp-tag-notice { color: var(--dp-muted); background: #f4f5f7; border-color: var(--dp-rule); }
 
 .dp-totals { display: flex; justify-content: flex-end; }
 .dp-totals table { min-width: 46%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
@@ -175,7 +218,9 @@
 .dp-sig-statement { color: var(--dp-ink-2); font-style: italic; white-space: pre-wrap; overflow-wrap: anywhere; margin-bottom: calc(var(--dp-gap) * 1.2) !important; }
 .dp-sigs { display: grid; grid-template-columns: 1fr 1fr; gap: calc(var(--dp-gap) * 1.6) 28px; }
 .dp-sig { display: grid; grid-template-columns: minmax(0, 1fr) 32%; gap: 12px; align-items: end; }
-.dp-sig-name { min-height: 1.6em; font-size: 0.95em; color: var(--dp-ink); padding: 0 2px; overflow-wrap: anywhere; }
+.dp-sig-name { margin-top: 2px; font-size: 0.85em; color: var(--dp-ink); overflow-wrap: anywhere; }
+.dp-sig-signed { min-height: 1.6em; font-size: 0.82em; font-style: italic; color: var(--dp-accent); padding: 0 2px; overflow-wrap: anywhere; display: flex; align-items: flex-end; }
+.dp-sig-date-v { font-style: normal; color: var(--dp-ink); }
 .dp-sig-line { height: 0; border-bottom: 1px solid var(--dp-ink); }
 .dp-sig-label { margin-top: 3px; font-size: 0.78em; color: var(--dp-muted); letter-spacing: .02em; }
 

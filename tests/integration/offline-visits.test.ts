@@ -335,8 +335,9 @@ describe("offline recordings", () => {
     expect(c2.json.data.visit.id).not.toBe(id);
 
     // Revoked device → 401 DEVICE_REVOKED.
-    const devices = (await hh.req("/api/devices", { cookie })).json.data;
-    await hh.req(`/api/devices/${devices[0].id}`, { method: "DELETE", cookie });
+    // Revoke exactly key2's device (two devices can share a created_at with the frozen clock).
+    const key2DeviceId = (await dev(hh, "/api/device/me", key2)).json.data.device.id as string;
+    await hh.req(`/api/devices/${key2DeviceId}`, { method: "DELETE", cookie });
     const revoked = await dev(hh, `/api/device/offline-visits/${c2.json.data.visit.id}`, key2);
     expect(revoked.status).toBe(401);
     expect(revoked.json.error.code).toBe("DEVICE_REVOKED");

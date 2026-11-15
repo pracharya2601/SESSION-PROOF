@@ -40,7 +40,7 @@ export const demoAppointment: Appointment = {
 export const demoPlan: Plan = {
   planVersion: "plan_demo_v1",
   serviceCode: "DEMO-ILS",
-  serviceDescription: "Independent living skills (demonstration service)",
+  serviceDescription: "Independent living skills",
   goals: [
     { goalId: "goal_transport", objective: "Practice transportation planning." },
     { goalId: "goal_budget", objective: "Practice budgeting." },

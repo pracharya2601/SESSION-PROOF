@@ -29,12 +29,30 @@ import { clientKnownTerms } from "./clients";
 import { finalizeDirect } from "./services/approval/amend";
 import { createVisitStore } from "./band/store";
 import { BandEvidenceSource, VisitRoutingEvidenceSource } from "./band/evidence";
-import { getScenarioLookup, loadScenarioLookup } from "./band/scenarios-registry";
+import { dayScriptLookupReady, getDayScriptLookup, getScenarioLookup, loadDayScriptLookup, loadScenarioLookup } from "./band/scenarios-registry";
+import { DayScriptCalendarSource, d1DayScriptRecordings } from "./schedule/day-script-overlay";
 import { withScenarioExtraction } from "./band/scenario-extractor";
 import type { Repository } from "./db/repository";
 import { createNotifier, safeNotify } from "./notify";
 import { createOfflineStore } from "./offline/store";
-import { runOfflineTranscription, sweepOfflineAudio, type OfflineJobDeps } from "./offline/job";
+import { runOfflineTranscription, sweepOfflineAudio, type OfflineJobDeps, type OfflineRecordingTarget } from "./offline/job";
+import {
+  calendarSync,
+  createRecordingStore,
+  RecordingEvidenceSource,
+  RecordingRoutingEvidenceSource,
+  runPartition,
+  sweepRecordings,
+  driveContextResolver,
+  visitContextResolver,
+  contentAiResolver,
+  type AcceptDeps,
+  type PartitionDeps,
+  type PartitionRecordingJob,
+} from "./recordings";
+import type { RecordingApiDeps } from "./api/recordings";
+import { withDismissedEvents } from "./archive";
+import { appointmentIdForEvent, createCalendarSource, createDriveSource, syncCalendarToAppointments, type ScheduleEnv } from "./schedule";
 
 export { SessionWorkflow } from "./workflow";
 
@@ -63,9 +81,95 @@ async function enqueueVisit(env: Env, jobs: JobDeps, appt: Parameters<typeof enq
   return r;
 }
 
+/** Recordings (src/recordings): calendar-partitioned, client-less band recordings. */
+function sendPartition(env: Env) {
+  return (job: PartitionRecordingJob) => (env.SESSION_QUEUE as unknown as Queue<PartitionRecordingJob>).send(job);
+}
+
+/**
+ * The provider's calendar. DEV ONLY (not deployed, demo calendar): plus the synthetic day-script
+ * events of scenario recordings (src/schedule/day-script-overlay.ts); `recordingId` scopes it to
+ * that one recording's script (its partition), so demo runs started minutes apart never collide.
+ */
+function calendarOf(env: Env, recordingId?: string) {
+  const base = createCalendarSource(env as unknown as ScheduleEnv, { clock });
+  if (env.RUNTIME_MODE === "deployed" || base.kind !== "demo") return base;
+  return new DayScriptCalendarSource({
+    base,
+    ...d1DayScriptRecordings(env.DB),
+    overlayFor: async (_providerId, rec) => (await import("../fixtures/schedule/day-scripts")).dayScriptOverlay(rec.scenario, rec.anchorMs, rec.id),
+    onlyRecordingId: recordingId,
+  });
+}
+
+function partitionDeps(env: Env, jobs: JobDeps, recordingId?: string): PartitionDeps {
+  const calendar = calendarOf(env, recordingId);
+  const drive = createDriveSource(env as unknown as ScheduleEnv);
+  return {
+    store: createRecordingStore(env.DB),
+    repo: jobs.repo,
+    queue: jobs.queue,
+    clock,
+    // Events dismissed by a deleted draft session are skipped (src/archive), unless newer recordings cover them.
+    syncCalendar: withDismissedEvents(
+      env.DB,
+      calendarSync({
+        calendar,
+        sync: (providerId, from, to) => syncCalendarToAppointments(jobs.repo, calendar, providerId, from, to, { drive, now: clock.now() }),
+        appointmentIdForEvent,
+        getAppointment: (id) => jobs.repo.getAppointment(id),
+      }),
+    ),
+    enqueueAppointment: (appt) => enqueueVisit(env, jobs, appt),
+    // Pass 2: content suggestions + conversation types (src/recordings/content-job.ts).
+    content: contentDeps(env, jobs, recordingId),
+  };
+}
+
+/** Pass 2 (content suggestions + conversation types) and the provider's accept / reject decisions. */
+function contentDeps(env: Env, jobs: JobDeps, recordingId?: string): AcceptDeps {
+  const calendar = calendarOf(env, recordingId);
+  const drive = createDriveSource(env as unknown as ScheduleEnv);
+  const repo = jobs.repo;
+  return {
+    store: createRecordingStore(env.DB),
+    clock,
+    calendar,
+    drive,
+    listClientRefs: async (providerId) => (await repo.listClients(providerId, { includeInactive: false, limit: 50 })).map((c) => c.client.clientRef),
+    // Client names on file are always scrubbed before inference.
+    knownTerms: async (providerId, refs) => (await Promise.all(refs.map(async (r) => clientKnownTerms(await repo.getClient(providerId, r))))).flat(),
+    resolveAi: contentAiResolver(env, repo),
+    repo,
+    queue: jobs.queue,
+    syncCalendar: withDismissedEvents(
+      env.DB,
+      calendarSync({
+        calendar,
+        sync: (providerId, from, to) => syncCalendarToAppointments(repo, calendar, providerId, from, to, { drive, now: clock.now() }),
+        appointmentIdForEvent,
+        getAppointment: (id) => repo.getAppointment(id),
+      }),
+    ),
+    enqueueAppointment: (appt) => enqueueVisit(env, jobs, appt),
+  };
+}
+
+function offlineRecordingTarget(env: Env): OfflineRecordingTarget {
+  const store = createRecordingStore(env.DB);
+  return {
+    transcriberOf: async (providerId, id) => (await store.get(providerId, id))?.recording.transcriber ?? null,
+    capture: store.capture,
+    enqueuePartition: async (providerId, recordingId) => {
+      await sendPartition(env)({ kind: "partition_recording", recordingId, providerId });
+    },
+  };
+}
+
 /** Offline recordings (src/offline): R2 temp audio → transcript → the same hand-off as a stopped visit. */
 function offlineDeps(env: Env, jobs: JobDeps): OfflineJobDeps {
   return {
+    recordings: offlineRecordingTarget(env),
     store: createOfflineStore(env.DB),
     visits: createVisitStore(env.DB),
     repo: jobs.repo,
@@ -98,6 +202,7 @@ function jobDeps(env: Env): JobDeps {
         approval,
       ),
     transcribeOffline: (job, attempt) => runOfflineTranscription(offlineDeps(env, jobs), job, attempt),
+    partitionRecording: (job, attempt) => runPartition(partitionDeps(env, jobs, job.recordingId), job, attempt),
   };
   return jobs;
 }
@@ -117,6 +222,16 @@ function ensureDevScenarios(env: Env): void {
       };
     } catch (err) {
       console.log(JSON.stringify({ level: "warn", event: "dev.scenarios_unavailable", errorName: err instanceof Error ? err.name : "unknown" }));
+      return null;
+    }
+  });
+  // Day scripts for client-less recordings (POST /api/device/recordings { scenario }).
+  void loadDayScriptLookup(async () => {
+    try {
+      const mod = await import("../fixtures/schedule/day-scripts");
+      return (id: string) => mod.getDayScript(id)?.script ?? null;
+    } catch (err) {
+      console.log(JSON.stringify({ level: "warn", event: "dev.day_scripts_unavailable", errorName: err instanceof Error ? err.name : "unknown" }));
       return null;
     }
   });
@@ -141,9 +256,10 @@ setWorkflowDepsFactory((env: Env) => {
   // Live Vexo evidence needs an MCP client (separate MCP server, not wired here).
   // In live mode without one, retrieval fails loudly with "not_configured".
   // Band-visit appointments read their own recorded transcript; all others use EVIDENCE_MODE.
-  evidence: new VisitRoutingEvidenceSource(
-    new BandEvidenceSource(createVisitStore(env.DB), () => clock.now()),
-    createEvidenceSource(env),
+  // Calendar appointments (appt_cal_) read the recording segments the partitioner assigned to them.
+  evidence: new RecordingRoutingEvidenceSource(
+    new RecordingEvidenceSource(createRecordingStore(env.DB), () => clock.now()),
+    new VisitRoutingEvidenceSource(new BandEvidenceSource(createVisitStore(env.DB), () => clock.now()), createEvidenceSource(env)),
   ),
   // Each provider's own AI settings (vendor, model, privacy toggles); PII scrubbing runs before any call.
   // Fixture mode only: a band visit playing a dev scenario uses that scenario's extraction (still validated).
@@ -159,6 +275,9 @@ setWorkflowDepsFactory((env: Env) => {
   // Run history ("see the agents working") + per-client hourly rate frozen into drafts.
   recorder: createRunRecorder(repo, clock),
   resolveClient: (appt) => repo.getClient(appt.providerId, appt.clientRef),
+  // Calendar appointments (appt_cal_*) draft from the client's Drive context + visit facts (EVV, consent, span).
+  resolveDriveContext: driveContextResolver(createDriveSource(env as unknown as ScheduleEnv)),
+  resolveVisitContext: visitContextResolver({ store: createRecordingStore(env.DB), calendar: calendarOf(env), drive: createDriveSource(env as unknown as ScheduleEnv) }),
   match: matchEvidence,
   assemble: assembleBundle,
   clock,
@@ -170,7 +289,7 @@ setWorkflowDepsFactory((env: Env) => {
 
 function apiDeps(env: Env): ApiDeps {
   const jobs = jobDeps(env);
-  return {
+  const deps: RecordingApiDeps = {
     repo: jobs.repo,
     clock,
     env,
@@ -184,12 +303,23 @@ function apiDeps(env: Env): ApiDeps {
       store: createVisitStore(env.DB),
       enqueueAppointment: (appt) => enqueueVisit(env, jobs, appt),
     },
+    recordings: {
+      store: createRecordingStore(env.DB),
+      calendar: calendarOf(env),
+      enqueuePartition: sendPartition(env),
+      // DEV ONLY (registered when not deployed): synthetic day scripts (fixtures/schedule/day-scripts.ts).
+      dayScript: (id: string) => getDayScriptLookup()?.(id) ?? null,
+      content: contentDeps(env, jobs),
+    },
   };
+  return deps;
 }
 
 export default {
   async fetch(request, env, ctx): Promise<Response> {
     ensureDevScenarios(env);
+    // The recordings start route looks day scripts up synchronously: let the dev loader settle first.
+    if (env.RUNTIME_MODE !== "deployed") await dayScriptLookupReady();
     const url = new URL(request.url);
     if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/auth/")) {
       return createApi(apiDeps(env)).fetch(request, env, ctx);
@@ -208,6 +338,10 @@ export default {
       // Offline recordings: delete expired temp audio, fail stuck transcriptions (never throws the heartbeat).
       await sweepOfflineAudio(offlineDeps(env, jobs)).catch((err: unknown) =>
         console.log(JSON.stringify({ level: "warn", event: "offline.sweep_failed", errorName: err instanceof Error ? err.name : "unknown" })),
+      );
+      // Recordings: delete unassigned segment text after 24 h, stop abandoned ones, re-send stuck partitions.
+      await sweepRecordings({ store: createRecordingStore(env.DB), clock, enqueuePartition: sendPartition(env) }).catch((err: unknown) =>
+        console.log(JSON.stringify({ level: "warn", event: "recording.sweep_failed", errorName: err instanceof Error ? err.name : "unknown" })),
       );
       console.log(JSON.stringify({ level: "info", event: "heartbeat.done", providersRun: sync.providersRun, enqueued: sync.enqueued, dispatched: dispatch.succeeded }));
     } catch (err) {

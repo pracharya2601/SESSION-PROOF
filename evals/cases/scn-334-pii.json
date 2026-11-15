@@ -1,0 +1,40 @@
+{
+  "id": "scn-334-pii",
+  "title": "SDP 334 fake PII spoken in transcript",
+  "purpose": "Scenario PII: (555) phone + example.invalid email must be tokenized before the model call.",
+  "tags": [
+    "scenario",
+    "sdp",
+    "pii"
+  ],
+  "fromScenario": "pii-in-transcript",
+  "sdpCode": "334",
+  "fake": {
+    "keywords": {
+      "goal_contact_safety": [
+        "contact",
+        "share"
+      ],
+      "goal_email_basics": [
+        "email"
+      ]
+    }
+  },
+  "expect": {
+    "mustAddress": [
+      "goal_contact_safety",
+      "goal_email_basics"
+    ],
+    "pii": [
+      {
+        "value": "(555) 555-0100",
+        "type": "PHONE"
+      },
+      {
+        "value": "test.learner@example.invalid",
+        "type": "EMAIL"
+      }
+    ],
+    "approvableAfterDuration": true
+  }
+}

@@ -321,3 +321,27 @@
   .rv-hero-glow, .rv-approve-btn.is-ready, .rv-approve-btn.is-ready::after { animation: none; }
   .rv-issue, .rv-ev-item, .rv-ev-link { transition: none; }
 }
+
+/* ---- v4 session checklist + invoice lines (server-built; display only) */
+.rv-cl { display: grid; gap: 10px; margin-top: 6px; }
+.rv-cl-summary { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 0; }
+.rv-cl-count { font-weight: 650; padding: 1px 8px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--c) 35%, transparent); color: var(--c); background: color-mix(in srgb, var(--c) 10%, transparent); }
+.rv-cl-pass { --c: var(--rv-ok); }
+.rv-cl-warn { --c: var(--rv-warn-c); }
+.rv-cl-fail { --c: var(--rv-danger); }
+.rv-cl-group .rv-block-h { margin: 6px 0 4px; }
+.rv-cl-items { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.rv-cl-item { display: grid; grid-template-columns: 18px 1fr; gap: 8px; align-items: start; min-width: 0; }
+.rv-cl-icon { color: var(--c); display: inline-flex; padding-top: 2px; }
+.rv-cl-item.rv-cl-pass { --c: var(--rv-ok); }
+.rv-cl-item.rv-cl-warn { --c: var(--rv-warn-c); }
+.rv-cl-item.rv-cl-fail { --c: var(--rv-danger); }
+.rv-cl-body { min-width: 0; overflow-wrap: anywhere; }
+.rv-cl-detail { display: block; }
+.rv-cl-blocks { color: var(--rv-danger); }
+.rv-inv-table { width: 100%; border-collapse: collapse; font-size: var(--text-sm, 0.875rem); table-layout: fixed; }
+.rv-inv-table th, .rv-inv-table td { text-align: left; padding: 6px 4px; border-bottom: 1px solid color-mix(in srgb, var(--muted, #888) 25%, transparent); vertical-align: top; overflow-wrap: anywhere; }
+.rv-inv-table th:first-child, .rv-inv-table td:first-child { width: 64%; }
+.rv-inv-table .rv-num { text-align: right; font-variant-numeric: tabular-nums; }
+.rv-inv-table .rv-tag { margin-left: 6px; }
+.rv-cl-item.rv-cl-removed { --c: var(--muted, #888); }

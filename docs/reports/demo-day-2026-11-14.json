@@ -1,0 +1,417 @@
+{
+  "generatedAt": "2026-11-14T23:58:44.465Z",
+  "base": "http://127.0.0.1:8787",
+  "health": {
+    "evidence": "fixture",
+    "extraction": "live",
+    "runtime": "local"
+  },
+  "speed": 20,
+  "node": "v20.19.2",
+  "passed": 6,
+  "recordings": [
+    {
+      "id": "day-handoff",
+      "title": "C-104 visit tail, travel, then a full SD-320-A visit",
+      "audioMinutes": 101,
+      "recordingId": "rec_840db3a79f3c4d9196e01d955883d312",
+      "transcriber": "simulated",
+      "currentEventAtStart": "SD-334-A demo_day_18eaeb84243b_sd334a",
+      "stream": {
+        "streamMs": 66026,
+        "packets": 304200,
+        "finals": 36,
+        "end": {
+          "type": "done",
+          "segmentCount": 36
+        }
+      },
+      "status": "partitioned",
+      "stopToPartitionedMs": 1079,
+      "unassigned": 0,
+      "ambiguous": 0,
+      "unassignedMinutes": 0,
+      "suggestions": [],
+      "sessionConversations": [],
+      "detailError": null,
+      "sessions": [
+        {
+          "client": "C-104",
+          "sessionId": "sess_2c3a78792cf05152e72aab21",
+          "segments": 12,
+          "status": "NEEDS_REVIEW",
+          "stopToDraftMs": 7144,
+          "blockers": [
+            "CLAIM_EXCEEDS_EVIDENCE",
+            "MISSING_PROGRESS",
+            "MISSING_CONFIRMED_DURATION"
+          ],
+          "nonBlocking": [
+            "UNKNOWN_GOAL_COVERAGE",
+            "PARTIAL_EVIDENCE"
+          ],
+          "checklistFails": [
+            "invoice_time_per_task",
+            "invoice_total",
+            "doc_progress",
+            "doc_duration",
+            "doc_claims_within_evidence"
+          ],
+          "checklistSummary": {
+            "pass": 11,
+            "warn": 4,
+            "fail": 5
+          },
+          "invoiceTotalCents": null,
+          "estimateCents": 7500,
+          "isEstimate": true,
+          "scheduledMinutes": 60,
+          "evidenceMinutes": 7,
+          "evidence": 12,
+          "claims": 9,
+          "drafter": "AI draft (openai gpt-4.1-2025-04-14)",
+          "completeness": "partial",
+          "bait": null,
+          "negatedPlan": {
+            "verdict": "ok",
+            "detail": "no claim says it was submitted"
+          }
+        },
+        {
+          "client": "SD-320-A",
+          "sessionId": "sess_7fbc46911872387158043e07",
+          "segments": 24,
+          "status": "NEEDS_REVIEW",
+          "stopToDraftMs": 1034,
+          "blockers": [
+            "CLAIM_EXCEEDS_EVIDENCE",
+            "MISSING_PROGRESS",
+            "MISSING_CONFIRMED_DURATION"
+          ],
+          "nonBlocking": [],
+          "checklistFails": [
+            "invoice_time_per_task",
+            "invoice_total",
+            "doc_progress",
+            "doc_duration",
+            "doc_claims_within_evidence"
+          ],
+          "checklistSummary": {
+            "pass": 12,
+            "warn": 3,
+            "fail": 5
+          },
+          "invoiceTotalCents": null,
+          "estimateCents": 5775,
+          "isEstimate": true,
+          "scheduledMinutes": 90,
+          "evidenceMinutes": 77,
+          "evidence": 24,
+          "claims": 8,
+          "drafter": "AI draft (openai gpt-4.1-2025-04-14)",
+          "completeness": "complete",
+          "bait": null,
+          "negatedPlan": {
+            "verdict": "ok",
+            "detail": "no claim says it was submitted"
+          }
+        }
+      ],
+      "totalMs": 75324,
+      "result": "PASS",
+      "failures": []
+    },
+    {
+      "id": "day-colleague",
+      "title": "3-minute caseload chat with a colleague",
+      "audioMinutes": 3,
+      "recordingId": "rec_62be6b11b55a483c951e0b88a81f8f5d",
+      "transcriber": "simulated",
+      "currentEventAtStart": "SD-334-A demo_day_18eaeb84243b_sd334a",
+      "stream": {
+        "streamMs": 8644,
+        "packets": 9000,
+        "finals": 12,
+        "end": {
+          "type": "done",
+          "segmentCount": 12
+        }
+      },
+      "status": "partitioned",
+      "stopToPartitionedMs": 1070,
+      "unassigned": 12,
+      "ambiguous": 0,
+      "unassignedMinutes": 0.9,
+      "suggestions": [
+        {
+          "client": "none",
+          "kind": "unscheduled",
+          "segments": 12,
+          "confidence": 0.83,
+          "method": "ai+rules",
+          "conversation": "colleague_meeting 0.95",
+          "status": "pending"
+        }
+      ],
+      "sessionConversations": [],
+      "detailError": null,
+      "sessions": [],
+      "totalMs": 11819,
+      "result": "PASS",
+      "failures": []
+    },
+    {
+      "id": "day-guardian-call",
+      "title": "Guardian phone call in a slot the participant missed",
+      "audioMinutes": 2,
+      "recordingId": "rec_55e352765eda4ccd8f1126c0cae64115",
+      "transcriber": "simulated",
+      "currentEventAtStart": "C-104 demo_day_26c0cae64115_c104",
+      "stream": {
+        "streamMs": 6262,
+        "packets": 6200,
+        "finals": 9,
+        "end": {
+          "type": "done",
+          "segmentCount": 9
+        }
+      },
+      "status": "partitioned",
+      "stopToPartitionedMs": 1056,
+      "unassigned": 0,
+      "ambiguous": 0,
+      "unassignedMinutes": 0,
+      "suggestions": [],
+      "sessionConversations": [],
+      "detailError": null,
+      "sessions": [
+        {
+          "client": "C-104",
+          "sessionId": "sess_52de3b55531c64fda3bed031",
+          "segments": 9,
+          "status": "NEEDS_REVIEW",
+          "stopToDraftMs": 4118,
+          "blockers": [
+            "NO_GOAL_ADDRESSED",
+            "MISSING_PROGRESS",
+            "MISSING_CONFIRMED_DURATION"
+          ],
+          "nonBlocking": [
+            "UNKNOWN_GOAL_COVERAGE",
+            "UNKNOWN_GOAL_COVERAGE",
+            "UNKNOWN_GOAL_COVERAGE",
+            "PARTIAL_EVIDENCE"
+          ],
+          "checklistFails": [
+            "invoice_time_per_task",
+            "invoice_total",
+            "doc_goals_addressed",
+            "doc_progress",
+            "doc_duration"
+          ],
+          "checklistSummary": {
+            "pass": 12,
+            "warn": 3,
+            "fail": 5
+          },
+          "invoiceTotalCents": null,
+          "estimateCents": 7500,
+          "isEstimate": true,
+          "scheduledMinutes": 60,
+          "evidenceMinutes": 2,
+          "evidence": 9,
+          "claims": 4,
+          "drafter": "AI draft (openai gpt-4.1-2025-04-14)",
+          "completeness": "partial",
+          "bait": null,
+          "negatedPlan": null
+        }
+      ],
+      "totalMs": 11481,
+      "result": "PASS",
+      "failures": []
+    },
+    {
+      "id": "day-small-talk",
+      "title": "Personal small talk over coffee",
+      "audioMinutes": 1,
+      "recordingId": "rec_1a5aabbac4de4cd5aa00cdb946451440",
+      "transcriber": "simulated",
+      "currentEventAtStart": "C-104 demo_day_26c0cae64115_c104",
+      "stream": {
+        "streamMs": 4438,
+        "packets": 4200,
+        "finals": 7,
+        "end": {
+          "type": "done",
+          "segmentCount": 7
+        }
+      },
+      "status": "partitioned",
+      "stopToPartitionedMs": 1059,
+      "unassigned": 7,
+      "ambiguous": 0,
+      "unassignedMinutes": 0.5,
+      "suggestions": [
+        {
+          "client": "none",
+          "kind": "unscheduled",
+          "segments": 7,
+          "confidence": 0.94,
+          "method": "ai+rules",
+          "conversation": "personal 0.84",
+          "status": "pending"
+        }
+      ],
+      "sessionConversations": [],
+      "detailError": null,
+      "sessions": [],
+      "totalMs": 7597,
+      "result": "PASS",
+      "failures": []
+    },
+    {
+      "id": "day-overrun",
+      "title": "SD-334-A visit overrunning its slot by 12 minutes",
+      "audioMinutes": 70,
+      "recordingId": "rec_81f5b281ae874f3fb178b0b79ad882b4",
+      "transcriber": "simulated",
+      "currentEventAtStart": "SD-334-A demo_day_b0b79ad882b4_sd334a",
+      "stream": {
+        "streamMs": 44193,
+        "packets": 209800,
+        "finals": 24,
+        "end": {
+          "type": "done",
+          "segmentCount": 24
+        }
+      },
+      "status": "partitioned",
+      "stopToPartitionedMs": 1068,
+      "unassigned": 2,
+      "ambiguous": 0,
+      "unassignedMinutes": 0.1,
+      "suggestions": [
+        {
+          "client": "none",
+          "kind": "unscheduled",
+          "segments": 2,
+          "confidence": 0.95,
+          "method": "ai+rules",
+          "conversation": "client_session 0.48",
+          "status": "pending"
+        }
+      ],
+      "sessionConversations": [
+        {
+          "eventId": "demo_day_b0b79ad882b4_sd334a",
+          "type": "client_session",
+          "confidence": 0.95,
+          "needsConfirmation": false
+        }
+      ],
+      "detailError": null,
+      "sessions": [
+        {
+          "client": "SD-334-A",
+          "sessionId": "sess_0de2c661f9142e5720f676b3",
+          "segments": 22,
+          "status": "NEEDS_REVIEW",
+          "stopToDraftMs": 5159,
+          "blockers": [
+            "CLAIM_EXCEEDS_EVIDENCE",
+            "MISSING_PROGRESS",
+            "MISSING_CONFIRMED_DURATION"
+          ],
+          "nonBlocking": [],
+          "checklistFails": [
+            "invoice_time_per_task",
+            "invoice_total",
+            "doc_progress",
+            "doc_duration",
+            "doc_claims_within_evidence"
+          ],
+          "checklistSummary": {
+            "pass": 7,
+            "warn": 3,
+            "fail": 5
+          },
+          "invoiceTotalCents": null,
+          "estimateCents": 5200,
+          "isEstimate": true,
+          "scheduledMinutes": 60,
+          "evidenceMinutes": 66,
+          "evidence": 22,
+          "claims": 8,
+          "drafter": "AI draft (openai gpt-4.1-2025-04-14)",
+          "completeness": "complete",
+          "bait": {
+            "verdict": "not drafted",
+            "detail": "drafter did not write the overstatement; 1 CLAIM_EXCEEDS_EVIDENCE issue(s) on other claims"
+          },
+          "negatedPlan": null
+        }
+      ],
+      "totalMs": 53562,
+      "result": "PASS",
+      "failures": []
+    },
+    {
+      "id": "day-unscheduled",
+      "title": "Unscheduled SD-334-A check-in (budget + bill reading)",
+      "audioMinutes": 10,
+      "recordingId": "rec_fd02001c01a44040b6ae051023bd2b3c",
+      "transcriber": "simulated",
+      "currentEventAtStart": "SD-334-A demo_day_b0b79ad882b4_sd334a",
+      "stream": {
+        "streamMs": 11115,
+        "packets": 28850,
+        "finals": 11,
+        "end": {
+          "type": "done",
+          "segmentCount": 11
+        }
+      },
+      "status": "partitioned",
+      "stopToPartitionedMs": 1060,
+      "unassigned": 11,
+      "ambiguous": 0,
+      "unassignedMinutes": 0.8,
+      "suggestions": [
+        {
+          "client": "SD-334-A",
+          "kind": "unscheduled",
+          "segments": 4,
+          "confidence": 0.95,
+          "method": "ai+rules",
+          "conversation": "client_session 0.95",
+          "status": "pending"
+        },
+        {
+          "client": "SD-334-A",
+          "kind": "unscheduled",
+          "segments": 4,
+          "confidence": 0.88,
+          "method": "ai+rules",
+          "conversation": "client_session 0.95",
+          "status": "pending"
+        },
+        {
+          "client": "SD-334-A",
+          "kind": "unscheduled",
+          "segments": 3,
+          "confidence": 0.95,
+          "method": "ai+rules",
+          "conversation": "client_session 0.95",
+          "status": "pending"
+        }
+      ],
+      "sessionConversations": [],
+      "detailError": null,
+      "sessions": [],
+      "totalMs": 18385,
+      "result": "PASS",
+      "failures": []
+    }
+  ]
+}

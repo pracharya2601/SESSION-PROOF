@@ -1,10 +1,17 @@
 /** renderDocModelPdf: any DocModel → PDF bytes via the shared pdf-lib layout engine. Deterministic. */
 import type { DocBlock, DocModel } from "../contracts/v3";
-import { APP_NAME, C, PdfWriter, hexToRgb, type Column, type Tone } from "../artifacts/layout";
+import { C, PdfWriter, hexToRgb, type Column, type Tone } from "../artifacts/layout";
 import { toWinAnsi } from "../artifacts/winansi";
 
 const TAG_TONE: Record<string, Tone> = {
-  "Provider confirmed": "accent",
+  "Provider attestation": "accent",
+  "Provider-confirmed (not evidence)": "accent",
+  "Provider-written (not evidence)": "accent",
+  Refused: "danger",
+  Removed: "neutral",
+  Pass: "neutral",
+  Warn: "warning",
+  Fail: "danger",
   Blocking: "danger",
   Advisory: "warning",
   Notice: "neutral",
@@ -50,6 +57,7 @@ function drawBlock(w: PdfWriter, block: DocBlock) {
           tag: it.tag && !notice ? { label: it.tag, tone: TAG_TONE[it.tag] ?? "neutral" } : undefined,
           font: notice ? "italic" : "regular",
           color: notice ? C.muted : C.ink,
+          refs: it.refs,
         });
       }
       return;
@@ -61,9 +69,24 @@ function drawBlock(w: PdfWriter, block: DocBlock) {
       if (block.columns.length === 0) return;
       const widths = normWidths(block.columns);
       const cols: Column[] = block.columns.map((c, i) => ({ header: c.label, width: widths[i] ?? 0, align: c.align }));
-      w.table(cols, block.rows.map((r) => block.columns.map((_, i) => r[i] ?? "")), { size: 9.5 });
+      const kinds = block.rowKinds;
+      const rows = block.rows.map((r, ri) =>
+        block.columns.map((_, i) => {
+          const text = r[i] ?? "";
+          if (!kinds) return text;
+          if (kinds[ri] === "sub") return { text: i === 2 && text ? `-  ${text}` : text, color: i === 2 ? C.muted : C.ink };
+          return { text, bold: i === 2 };
+        }),
+      );
+      w.table(cols, rows, { size: kinds ? 9 : 9.5, ...(kinds ? { rowKinds: kinds } : {}) });
       return;
     }
+    case "parties":
+      w.parties(block.parties);
+      return;
+    case "pagebreak":
+      w.pageBreak();
+      return;
     case "totals":
       w.totals(block.rows);
       return;
@@ -84,8 +107,8 @@ function drawBlock(w: PdfWriter, block: DocBlock) {
 export async function renderDocModelPdf(model: DocModel): Promise<Uint8Array> {
   const meta = model.header.meta;
   const find = (label: string) => meta.find((m) => m.label === label)?.value;
-  const client = find("Client");
-  const titleParts = [model.title, client, find("Service date"), find("Revision")].filter((x): x is string => !!x);
+  const client = find("Client") ?? find("Participant");
+  const titleParts = [model.title, find("Invoice #"), client, find("Service date"), find("Revision")].filter((x): x is string => !!x && x !== "Assigned at approval");
   const footerLeft = [model.footer.note, model.footer.revisionLabel].filter((x) => x && x.trim()).join("  ·  ");
   const w = await PdfWriter.create({
     title: model.title,
@@ -94,10 +117,20 @@ export async function renderDocModelPdf(model: DocModel): Promise<Uint8Array> {
     metaRows: metaParts(meta),
     banner: model.banner,
     footerLeft,
+    letterhead: model.letterhead
+      ? {
+          name: model.letterhead.name,
+          lines: model.letterhead.lines,
+          logoDataUrl: model.letterhead.logoDataUrl,
+          meta: model.letterhead.meta.map((m) => [m.label, m.value] as [string, string]),
+          incomplete: model.letterhead.incomplete,
+        }
+      : null,
+    watermark: model.watermark ?? null,
     metadata: {
       title: titleParts.join(" — "),
       subject: `${model.title}${client ? ` for client ${client}` : ""} (${model.footer.revisionLabel})`,
-      keywords: [APP_NAME, model.title, model.kind, ...(client ? [client] : []), toWinAnsi(model.filename)],
+      keywords: [model.title, model.kind, ...(client ? [client] : []), toWinAnsi(model.filename)],
     },
     theme: {
       accent: hexToRgb(model.theme.accentColor),

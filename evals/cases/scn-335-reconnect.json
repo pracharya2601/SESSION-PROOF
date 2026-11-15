@@ -1,0 +1,45 @@
+{
+  "id": "scn-335-reconnect",
+  "title": "SDP 335 Employment Supports (band reconnect)",
+  "purpose": "Job coaching with a reconnect gap; progress stated.",
+  "tags": [
+    "scenario",
+    "sdp"
+  ],
+  "fromScenario": "reconnect-mid-visit",
+  "sdpCode": "335",
+  "fake": {
+    "keywords": {
+      "goal_task_list": [
+        "task list",
+        "shelves"
+      ],
+      "goal_break_time": [
+        "break",
+        "timer"
+      ]
+    }
+  },
+  "expect": {
+    "mustAddress": [
+      "goal_task_list",
+      "goal_break_time"
+    ],
+    "forbiddenClaims": [
+      {
+        "id": "backroom-done",
+        "pattern": "(completed|finished|did) the backroom",
+        "kind": "discussed_not_achieved"
+      }
+    ],
+    "requiredCitations": [
+      {
+        "target": "progress",
+        "anyOf": [
+          "ev_005"
+        ]
+      }
+    ],
+    "approvableAfterDuration": true
+  }
+}

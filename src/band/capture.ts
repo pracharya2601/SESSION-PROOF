@@ -22,9 +22,13 @@ export const MAX_PACKET_BYTES = 1500;
 export const MAX_PACKETS = 4 * 60 * 60 * 50;
 const STATS_EVERY = 250;
 
+/** What a capture writes to: a band visit, or a client-less recording (src/recordings). */
+export type CaptureTarget = Pick<Visit, "id" | "providerId" | "packets" | "lostPackets">;
+export type CaptureStore = Pick<VisitStore, "listSegments" | "saveSegment" | "setAudioStarted" | "updateStats">;
+
 export interface CaptureOptions {
-  visit: Visit;
-  store: VisitStore;
+  visit: CaptureTarget;
+  store: CaptureStore;
   openTranscriber: (events: TranscriberEvents) => Promise<TranscriberSession>;
   send: (msg: VisitServerMessage) => void;
   now: () => Date;

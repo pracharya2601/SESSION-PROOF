@@ -13,8 +13,11 @@ import type {
   ProviderAttestation,
   TimeSummary,
 } from "../../contracts";
+import { unsupportedGeneralisations } from "../../drafting/language";
 
 const NO_PROGRESS_NOTICE = "No supported progress statement — provider confirmation required.";
+/** Prefix of a claim line the rules refuse (CLAIM_EXCEEDS_EVIDENCE): kept visible, never presented as fact. */
+export const REFUSED_PREFIX = "REFUSED — exceeds the session evidence: ";
 
 function minutesBetween(from: string, to: string): number {
   const ms = new Date(to).getTime() - new Date(from).getTime();
@@ -54,12 +57,12 @@ function notice(text: string, evidenceIds: string[] = []): DocumentLine {
 function attestationLine(prefix: string, a: ProviderAttestation): DocumentLine {
   return { text: `${prefix}${a.text}`, claimIds: [], evidenceIds: [], attestationIds: [a.id], origin: "provider_attestation" };
 }
-/** Line for a fact claim. provider_confirmed claims keep attestation provenance. */
-function claimLine(prefix: string, c: FactClaim): DocumentLine {
+/** Line for a fact claim. provider_confirmed claims keep attestation provenance; refused claims are marked. */
+function claimLine(prefix: string, c: FactClaim, refused?: ReadonlySet<string>): DocumentLine {
   const uncertain = c.support === "uncertain" ? "(uncertain) " : "";
   if (c.support === "provider_confirmed") {
     return {
-      text: `${prefix}Provider confirmed: ${c.text}`,
+      text: `${prefix}Provider-confirmed (not evidence): ${c.text}`,
       claimIds: [c.id],
       evidenceIds: [...c.evidenceIds],
       attestationIds: c.providerAttestationId ? [c.providerAttestationId] : [],
@@ -67,7 +70,7 @@ function claimLine(prefix: string, c: FactClaim): DocumentLine {
     };
   }
   return {
-    text: `${prefix}${uncertain}${c.text}`,
+    text: `${refused?.has(c.id) ? REFUSED_PREFIX : ""}${prefix}${uncertain}${c.text}`,
     claimIds: [c.id],
     evidenceIds: [...c.evidenceIds],
     attestationIds: [],
@@ -94,17 +97,26 @@ const STATUS_LABEL = {
 export const generateDocuments: GenerateDocumentsFn = (input) => {
   const { appointment, plan, facts, attestations } = input;
   const tz = appointment.timezone;
+  // Claims the rules will refuse (generalisation beyond the cited segments): marked, never presented as fact.
+  const excerpts = new Map(input.evidence.map((e) => [e.id, e.excerpt]));
+  const refused = new Set<string>();
+  for (const c of [...facts.activities, ...facts.observations, ...facts.progress, ...facts.followUps, ...facts.goals.flatMap((g) => g.claims)]) {
+    if (c.support === "provider_confirmed") continue;
+    const cited = c.evidenceIds.map((id) => excerpts.get(id)).filter((t): t is string => typeof t === "string");
+    if (unsupportedGeneralisations(c.text, cited).length > 0) refused.add(c.id);
+  }
+  const line = (prefix: string, c: FactClaim) => claimLine(prefix, c, refused);
 
   // ---- session note
   const sessionNote: DocumentLine[] = [
     config(`Service: ${plan.serviceDescription} (${appointment.serviceCode})`),
     config(`Date: ${localDate(appointment.startAt, tz)} (${tz})`),
     config(`Client reference: ${appointment.clientRef}`),
-    ...facts.activities.map((c) => claimLine("Activity: ", c)),
-    ...facts.observations.map((c) => claimLine("Observation: ", c)),
+    ...facts.activities.map((c) => line("Activity: ", c)),
+    ...facts.observations.map((c) => line("Observation: ", c)),
   ];
   const activitySummaries = attestations.filter((a) => a.field === "activity_summary");
-  for (const a of activitySummaries) sessionNote.push(attestationLine("Activity summary (provider written): ", a));
+  for (const a of activitySummaries) sessionNote.push(attestationLine("Activity summary (provider-written, not evidence): ", a));
   if (facts.activities.length === 0 && facts.observations.length === 0 && activitySummaries.length === 0) {
     sessionNote.push(notice("No supported activities or observations recorded."));
   }
@@ -115,7 +127,7 @@ export const generateDocuments: GenerateDocumentsFn = (input) => {
   for (const a of goalAttestations) {
     const goal = plan.goals.find((g) => g.goalId === a.text.trim())!;
     sessionNote.push({
-      text: `Goal addressed (provider confirmed): ${goal.objective}`,
+      text: `Goal addressed (provider-confirmed, not evidence): ${goal.objective}`,
       claimIds: [],
       evidenceIds: [],
       attestationIds: [a.id],
@@ -130,11 +142,11 @@ export const generateDocuments: GenerateDocumentsFn = (input) => {
   const progress: DocumentLine[] = [];
   for (const c of facts.progress) {
     if (c.support === "provider_confirmed" && c.providerAttestationId && attestedIds.has(c.providerAttestationId)) continue;
-    progress.push(claimLine("", c));
+    progress.push(line("", c));
   }
-  for (const a of progressAttestations) progress.push(attestationLine("Provider confirmed: ", a));
+  for (const a of progressAttestations) progress.push(attestationLine("Provider-confirmed (not evidence): ", a));
   const hasSupportedProgress =
-    progressAttestations.length > 0 || facts.progress.some((c) => c.support !== "uncertain");
+    progressAttestations.length > 0 || facts.progress.some((c) => c.support !== "uncertain" && !refused.has(c.id));
   if (!hasSupportedProgress) progress.push(notice(NO_PROGRESS_NOTICE));
 
   // ---- plan coverage
@@ -161,7 +173,7 @@ export const generateDocuments: GenerateDocumentsFn = (input) => {
     if (e.support === "provider_confirmed") {
       const extra = claims.length === 0 ? "" : ` — ${claims.map((c) => (c.support === "uncertain" ? `(uncertain) ${c.text}` : c.text)).join(" ")}`;
       return {
-        text: `${e.objective} — Addressed (provider confirmed)${extra}`,
+        text: `${e.objective} — Addressed (provider-confirmed, not evidence)${extra}`,
         claimIds: [...e.claimIds],
         evidenceIds: [...new Set(claims.flatMap((c) => c.evidenceIds))],
         attestationIds: confirmed.map((c) => c.providerAttestationId).filter((id): id is string => !!id),
@@ -180,7 +192,7 @@ export const generateDocuments: GenerateDocumentsFn = (input) => {
   });
 
   // ---- follow-ups
-  const followUps: DocumentLine[] = facts.followUps.map((c) => claimLine("Recorded only — not sent: ", c));
+  const followUps: DocumentLine[] = facts.followUps.map((c) => line("Recorded only — not sent: ", c));
   if (followUps.length === 0) followUps.push(notice("No follow-ups recorded."));
 
   // ---- missing information
@@ -230,7 +242,7 @@ export const generateDocuments: GenerateDocumentsFn = (input) => {
   if (input.confirmedMinutes !== null) {
     const durationAtt = latestDurationAttestation(attestations);
     time.push({
-      text: `Confirmed duration: ${input.confirmedMinutes} minutes (provider confirmed)`,
+      text: `Confirmed duration: ${input.confirmedMinutes} minutes (provider-confirmed, not evidence)`,
       claimIds: [],
       evidenceIds: [],
       attestationIds: durationAtt ? [durationAtt.id] : [],

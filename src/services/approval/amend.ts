@@ -11,6 +11,7 @@
  * completion hook) and is idempotent; jobs.notifyApproval uses it when no live
  * workflow instance exists.
  */
+import { assignInvoiceNumber } from "../profile/index";
 import { AmendRequest, type ApprovalRecord, type ClientRecord, type Appointment, type RunRecorder, type SessionBundle, workflowInstanceId } from "../../contracts";
 import type { Repository } from "../../db/repository";
 import type { Actor, ApiDeps } from "../../api/deps";
@@ -109,6 +110,7 @@ export async function finalizeDirect(deps: FinalizeDirectDeps, approval: Approva
       await safeRecord(deps.recorder, { ...base, stage: "client_snapshot", status: "succeeded", idSuffix: `r${approval.bundleRevision}`, label: "Client details frozen for this revision", detail: null, meta: { bundleRevision: approval.bundleRevision } });
     }
   }
+  await assignInvoiceNumber(deps.repo, session.providerId, session.id, approval.bundleRevision, deps.clock.now());
   const res = await deps.repo.finalizeApproved(session.id, approval.id, approval.bundleRevision, deps.clock.now());
   if (!res.ok) {
     const again = await deps.repo.getFinalBundle(session.id);

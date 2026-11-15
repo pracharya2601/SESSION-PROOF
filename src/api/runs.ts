@@ -72,6 +72,8 @@ export function runsRoutes(deps: ApiDeps): Hono<AppBindings> {
       ...(sessionIdRaw ? { sessionId: sessionIdRaw } : {}),
       limit: RUNS_PAGE_LIMIT,
       cursor: cursorRaw ? cursorRaw : null,
+      // Archived runs (and runs of archived sessions) are hidden unless ?includeArchived=1.
+      ...(c.req.query("includeArchived") === "1" ? { includeArchived: true } : {}),
     });
     const body: ListRunsResponse = { runs: result.runs, nextCursor: result.nextCursor };
     return ok(c, body);
@@ -90,7 +92,7 @@ export function runsRoutes(deps: ApiDeps): Hono<AppBindings> {
     own.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
     let summary: RunSummary | null = null;
     try {
-      const listed = await deps.repo.listRuns(actor.providerId, { sessionId: own[0]!.sessionId, limit: RUNS_PAGE_LIMIT, cursor: null });
+      const listed = await deps.repo.listRuns(actor.providerId, { sessionId: own[0]!.sessionId, limit: RUNS_PAGE_LIMIT, cursor: null, includeArchived: true });
       summary = listed.runs.find((r) => r.runId === runId) ?? null;
     } catch {
       summary = null;

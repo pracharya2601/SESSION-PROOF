@@ -8,6 +8,7 @@
  */
 import {
   approvalId,
+  claimRejectionText,
   sha256Hex,
   type ApprovalRecord,
   type ApprovalRequest,
@@ -20,6 +21,8 @@ import {
 import type { ConditionalResult } from "../../db/repository";
 import type { Actor, ApiDeps } from "../../api/deps";
 import { log } from "../../security/index";
+import { applyBusinessProfileGate } from "../../domain/rules/profile-gate";
+import { assignInvoiceNumber, loadProviderProfile } from "../profile/index";
 
 export class ServiceError extends Error {
   constructor(
@@ -115,6 +118,26 @@ export async function saveReview(
       fresh.push({ ...mk("goal_addressed", goalId), id: `att-${sessionId}-r${newRev}-goal_addressed-${i + 1}` }),
     );
   }
+  if (req.edits.rejectedClaims !== undefined) {
+    // v4: only extracted (model/drafter) claims can be removed; the provider's own statements are edited directly.
+    const f = current.extractedFacts;
+    const known = new Set(
+      [...f.activities, ...f.observations, ...f.progress, ...f.followUps, ...f.goals.flatMap((g) => g.claims)].map((c) => c.id),
+    );
+    const unknown = req.edits.rejectedClaims.map((r) => r.claimId).filter((id) => !known.has(id));
+    if (unknown.length > 0) {
+      throw new ServiceError(422, "UNKNOWN_CLAIM", "rejectedClaims may only name claims in this session's draft.", false, {
+        unknownClaimIds: unknown.slice(0, 50),
+      });
+    }
+    superseded.add("claim_rejected");
+    req.edits.rejectedClaims.forEach((r, i) =>
+      fresh.push({
+        ...mk("claim_rejected", claimRejectionText(r.claimId, r.reason)),
+        id: `att-${sessionId}-r${newRev}-claim_rejected-${i + 1}`,
+      }),
+    );
+  }
   const attestations = [...current.attestations.filter((a) => !superseded.has(a.field)), ...fresh];
 
   // Duration must also respect the frozen rate's own maximum (may be < schema max).
@@ -176,8 +199,10 @@ export async function approveSession(
   const bundle = await deps.repo.getBundle(sessionId, req.expectedRevision);
   if (!bundle) throw new ServiceError(409, "STALE_REVISION", "The bundle revision is no longer current", false);
 
-  if (!bundle.checks.canApprove) {
-    const blocking = bundle.checks.issues.filter((i) => i.blocking);
+  // The business profile (vendor #, address) is checked live: it is not part of the frozen bundle.
+  const gated = applyBusinessProfileGate(bundle, await loadProviderProfile(deps.repo, actor.providerId));
+  if (!gated.checks.canApprove) {
+    const blocking = gated.checks.issues.filter((i) => i.blocking);
     throw new ServiceError(422, "DOCUMENTATION_BLOCKERS", "Unresolved documentation blockers", false, blocking);
   }
   const { confirmedMinutes, amountCents } = bundle.billing;
@@ -209,6 +234,8 @@ export async function approveSession(
   if (!persisted.ok) throw conditionalError(persisted);
 
   const stored = persisted.value.approval;
+  // Sequential invoice number for this approved revision (idempotent; finalize retries it too).
+  await assignInvoiceNumber(deps.repo, actor.providerId, sessionId, rev, now);
   if (stored.finalizationStatus === "pending") await tryNotify(deps, stored);
   return { approval: stored, finalization: stored.finalizationStatus };
 }

@@ -1,10 +1,25 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { AlertOctagon, ArrowLeft, CheckCircle2, ChevronDown, History, Info, Loader2, RefreshCw } from "lucide-react";
+import {
+  AlertOctagon,
+  ArrowLeft,
+  CheckCircle2,
+  FileText,
+  FolderOpen,
+  GitBranch,
+  History,
+  Info,
+  ListChecks,
+  Loader2,
+  MessagesSquare,
+  PencilLine,
+  Receipt,
+  RefreshCw,
+  Target,
+} from "lucide-react";
 import type { ApprovalRequest, ApproveResponse, ReviewEdits, ReviewRequest, SessionBundle, SessionDetail } from "../../contracts";
 import { api, ApiClientError } from "../api";
-import { Button, Skeleton, StatusPill } from "../design";
-import { SessionHeader } from "../components/review/SessionHeader";
+import { Button, Skeleton } from "../design";
 import { DocumentSections } from "../components/review/DocumentSections";
 import { EvidencePanel } from "../components/review/EvidencePanel";
 import { PlanCoverage } from "../components/review/PlanCoverage";
@@ -21,16 +36,18 @@ import {
 } from "../components/review/CorrectionForm";
 import { RunTimeline } from "../components/runs/RunTimeline";
 import { ApprovalRecordPanel } from "../components/review/ApprovalRecordPanel";
-import { ApproveButton } from "../components/review/ApproveButton";
 import { FilesCard } from "../components/review/FilesCard";
 import { AmendBanner, AmendCard } from "../components/review/AmendCard";
-import { ApprovalChecklist } from "../components/review/ApprovalChecklist";
-import { Celebration } from "../components/review/Celebration";
-import { RevisionBadge } from "../components/review/RevisionBadge";
 import { Section } from "../components/review/Section";
+import { ReviewSummary } from "../components/review/ReviewSummary";
 import { formatCents } from "../components/review/format";
-import { rvItem, rvItemReduced, rvSpring, rvStagger, useMotionOK } from "../components/review/motion";
+import { rvSpring, rvStagger, useMotionOK } from "../components/review/motion";
+import { AssistantChat, type ApplyResult } from "../components/review-chat/AssistantChat";
+import { ClaimList } from "../components/review-chat/ClaimList";
+import { Accordion } from "../components/review-chat/Accordion";
+import { initialOpen, refusedClaimId, sectionBlockers } from "../components/review-chat/helpers";
 import "../components/review/review.css";
+import "../components/review-chat/chat.css";
 
 const POLL_MS = 2000;
 const POLL_MAX = 30;
@@ -116,6 +133,8 @@ function confirmedGoals(bundle: SessionBundle | null): string[] {
 
 const sameIds = (a: string[], b: string[]) => a.length === b.length && a.every((x) => b.includes(x));
 
+
+
 function initialValues(bundle: SessionBundle | null): CorrectionValues {
   // Never prefill from the schedule: only an existing provider-confirmed value.
   const c = bundle?.documents.timeSummary.confirmedMinutes ?? null;
@@ -155,7 +174,9 @@ export default function Review(props: { sessionId: string; onBack: () => void; s
   const [loadError, setLoadError] = useState<UiError | null>(null);
   const [loading, setLoading] = useState(true);
   const [values, setValues] = useState<CorrectionValues>({ progress: "", minutes: "", directed: "unset", choices: "" });
-  const [historyOpen, setHistoryOpen] = useState(true);
+  const [open, setOpen] = useState<Record<string, boolean>>({});
+  const [assistantOff, setAssistantOff] = useState<string | null>(null);
+  const [preferredName, setPreferredName] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [approving, setApproving] = useState(false);
   const [finalizing, setFinalizing] = useState(false);
@@ -234,6 +255,7 @@ export default function Review(props: { sessionId: string; onBack: () => void; s
         if (cancelled) return;
         setDetail(d);
         setValues(initialValues(d.bundle));
+        setOpen(initialOpen(d.bundle));
         setLoadError(null);
         if (d.session.status === "APPROVED") void pollUntilCompleted();
       })
@@ -247,6 +269,29 @@ export default function Review(props: { sessionId: string; onBack: () => void; s
       cancelled = true;
     };
   }, [sessionId, pollUntilCompleted, src]);
+
+  // Preferred name, if on file (signed-in only; review links never fetch client records).
+  const clientRef = detail?.appointment.clientRef;
+  useEffect(() => {
+    if (linkMode || !clientRef) return;
+    let cancelled = false;
+    api
+      .getClient(clientRef)
+      .then((s) => {
+        if (!cancelled) setPreferredName(s.client.preferredName?.trim() || null);
+      })
+      .catch(() => {
+        /* no client record — show the reference only */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [clientRef, linkMode]);
+
+  const onAssistantUnavailable = useCallback((reason: string) => {
+    setAssistantOff(reason);
+    setOpen((o) => ({ ...o, manual: true }));
+  }, []);
 
   // ----- form state
   const currentConfirmed = bundle?.documents.timeSummary.confirmedMinutes ?? null;
@@ -337,6 +382,33 @@ export default function Review(props: { sessionId: string; onBack: () => void; s
     }
   }
 
+  /** Saves edits from the assistant or a claim's Remove… control (same PATCH review, revision-guarded). */
+  async function applyEdits(edits: ReviewEdits): Promise<ApplyResult> {
+    if (!bundle) return { ok: false, conflict: false, message: "Nothing to save yet." };
+    setSaving(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const next = await src.saveReview(sessionId, { expectedRevision: bundle.bundleRevision, edits });
+      if (!mounted.current) return { ok: true, revision: next.bundleRevision };
+      setDetail((d) => (d ? { ...d, bundle: next, session: { ...d.session, currentBundleRevision: next.bundleRevision } } : d));
+      if (!dirty) setValues(initialValues(next));
+      const amount = next.billing.isEstimate ? next.billing.estimateAmountCents : next.billing.amountCents;
+      setNotice(`Saved revision ${next.bundleRevision} — amount recalculated by server: ${formatCents(amount)}${next.billing.isEstimate ? " (estimate)" : ""}`);
+      return { ok: true, revision: next.bundleRevision };
+    } catch (e) {
+      if (e instanceof ApiClientError && e.status === 409) {
+        await handleConflict();
+        return { ok: false, conflict: true, message: "This record changed elsewhere — reloaded. Ask again for the latest version." };
+      }
+      const ue = toUiError(e);
+      if (mounted.current) setError(ue);
+      return { ok: false, conflict: false, message: ue.message };
+    } finally {
+      if (mounted.current) setSaving(false);
+    }
+  }
+
   async function onApprove() {
     if (!bundle || approving) return;
     // Approve exactly the displayed (saved) revision.
@@ -374,6 +446,7 @@ export default function Review(props: { sessionId: string; onBack: () => void; s
   }
 
   const onEvidence = useCallback((id: string) => {
+    setOpen((o) => ({ ...o, evidence: true }));
     setHighlight(id);
     setFocusTick((t) => t + 1);
   }, []);
@@ -440,63 +513,53 @@ export default function Review(props: { sessionId: string; onBack: () => void; s
   else if (status !== "NEEDS_REVIEW") approveReason = `Approval is only available while the session needs review (current status: ${status}).`;
   else if (dirty) approveReason = "Save or discard your changes first — approval applies only to a saved revision.";
   else if (saving) approveReason = "Saving…";
+  else if (bundle.checks.issues.some((i) => i.code === "BUSINESS_PROFILE_INCOMPLETE"))
+    approveReason = "Complete your business profile (vendor #, address) before approving — Settings → Business profile.";
   else if (!bundle.checks.canApprove) approveReason = "Blocking documentation checks must be fixed before approval.";
   const canApprove = approveReason === null && !approving;
 
-  const itemV = motionOK ? rvItem : rvItemReduced;
+  const blockers = sectionBlockers(bundle);
+  const toggle = (k: string) => (v: boolean) => setOpen((o) => ({ ...o, [k]: v }));
+  const badge = (n: number) => (n > 0 ? { text: `${n} to fix`, tone: "danger" as const } : null);
+  const chatOn = editable && !linkMode && assistantOff === null;
+  const refusedCount = (bundle?.checks.issues ?? []).filter((i) => refusedClaimId(i)).length;
 
-  const historySection = (
-    <Section
-      label="History"
-      title="History"
-      icon={<History size={18} />}
-      className="rv-history"
-      aside={
-        <Button
-          variant="ghost"
-          size="sm"
-          iconOnly
-          aria-label={historyOpen ? "Collapse history" : "Expand history"}
-          aria-expanded={historyOpen}
-          aria-controls="rv-history-body"
-          onClick={() => setHistoryOpen((o) => !o)}
-          icon={
-            <motion.span style={{ display: "inline-flex" }} animate={{ rotate: historyOpen ? 180 : 0 }}>
-              <ChevronDown size={16} />
-            </motion.span>
-          }
+  const manualForm =
+    editable && bundle ? (
+      <Accordion id="manual" title="Edit manually" icon={<PencilLine size={16} />} open={!!open.manual} onToggle={toggle("manual")}>
+        <CorrectionForm
+          values={values}
+          onChange={setValues}
+          onSave={() => void onSave()}
+          onDiscard={() => setValues(initialValues(bundle))}
+          dirty={dirty}
+          saving={saving}
+          scheduledMinutes={bundle.documents.timeSummary.scheduledMinutes}
+          currentConfirmed={currentConfirmed}
+          currentDirected={currentDirected}
+          currentChoices={currentChoices}
+          goals={bundle.config.plan.goals}
+          currentGoals={currentGoals}
+          currentSummary={currentSummary}
         />
-      }
-    >
-      <AnimatePresence initial={false}>
-        {historyOpen && (
-          <motion.div
-            id="rv-history-body"
-            key="history"
-            style={{ overflow: "hidden" }}
-            initial={motionOK ? { height: 0, opacity: 0 } : { opacity: 0 }}
-            animate={motionOK ? { height: "auto", opacity: 1 } : { opacity: 1 }}
-            exit={motionOK ? { height: 0, opacity: 0 } : { opacity: 0 }}
-            transition={{ duration: motionOK ? 0.28 : 0.1 }}
-          >
-            <div style={{ paddingTop: "var(--sp-3, 12px)" }}>
-              <RunTimeline sessionId={sessionId} />
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </Section>
-  );
+      </Accordion>
+    ) : null;
 
   return (
     <motion.div className="rv-page" variants={rvStagger} initial="hidden" animate="show">
-      <SessionHeader
-        appointment={detail.appointment}
-        session={detail.session}
-        revision={revision}
-        provenance={bundle?.provenance ?? null}
-        serviceDescription={bundle?.config.plan.serviceDescription}
+      <ReviewSummary
+        detail={detail}
+        bundle={bundle}
+        preferredName={preferredName}
         onBack={props.onBack}
+        editable={editable}
+        completed={completed}
+        finalizing={finalizing}
+        approving={approving}
+        canApprove={canApprove}
+        approveReason={approveReason}
+        onApprove={() => void onApprove()}
+        celebrate={celebrate}
       />
 
       <div aria-live="polite" className="rv-alerts">
@@ -559,147 +622,135 @@ export default function Review(props: { sessionId: string; onBack: () => void; s
       )}
 
       {!bundle ? (
-        <Section label="No bundle" className="rv-empty">
-          <p>No review bundle is available for this session yet.</p>
-          <div>
-            <Button icon={<RefreshCw size={16} />} onClick={() => void fetchDetail()}>
-              Refresh
-            </Button>
+        <>
+          <Section label="No bundle" className="rv-empty">
+            <p>No review bundle is available for this session yet.</p>
+            <div>
+              <Button icon={<RefreshCw size={16} />} onClick={() => void fetchDetail()}>
+                Refresh
+              </Button>
+            </div>
+          </Section>
+          {!linkMode && (
+            <div className="rvx-acc">
+              <Accordion id="runs" title="Run history" icon={<History size={16} />} open={!!open.runs} onToggle={toggle("runs")}>
+                <RunTimeline sessionId={sessionId} />
+              </Accordion>
+            </div>
+          )}
+        </>
+      ) : (
+        <div className={`rvx-layout${chatOn ? "" : " no-chat"}`}>
+          <div className="rvx-left">
+            {chatOn && (
+              <AssistantChat
+                sessionId={sessionId}
+                bundle={bundle}
+                timezone={tz}
+                editable={editable}
+                onApply={applyEdits}
+                onCite={onEvidence}
+                onUnavailable={onAssistantUnavailable}
+              />
+            )}
+            {!chatOn && editable && assistantOff && <p className="rvx-off">{assistantOff}</p>}
+            {!chatOn && manualForm}
           </div>
-        </Section>
-      ) : null}
-      {!bundle && !linkMode && historySection}
-      {!bundle ? null : (
-        <div className="rv-grid">
-          <motion.div className="rv-main" variants={rvStagger}>
-            <DocumentSections sections={bundle.documents.sections} onEvidence={onEvidence} activeEvidence={highlight} />
-            <PlanCoverage entries={bundle.documents.planCoverage} />
-            <EvidencePanel evidence={bundle.evidence} timezone={tz} highlightId={highlight} focusTick={focusTick} />
-            {!linkMode && historySection}
-          </motion.div>
 
-          <motion.aside className="rv-rail" variants={rvStagger} aria-label="Review summary and actions">
-            <motion.section
-              className={`ds-card ds-pad-md rv-card rv-status-card${completed ? " is-complete" : ""}`}
-              aria-label="Status"
-              variants={itemV}
+          <div className="rvx-acc" aria-label="Session details">
+            <Accordion
+              id="note"
+              title="Session note & documents"
+              icon={<FileText size={16} />}
+              badge={badge(blockers.note)}
+              open={!!open.note}
+              onToggle={toggle("note")}
             >
-              <Celebration burstKey={celebrate} />
-              <div className="rv-status-row">
-                <StatusPill status={detail.session.status} />
-                {revision !== null && <RevisionBadge revision={revision} />}
-              </div>
-              <AnimatePresence mode="wait" initial={false}>
-                {completed ? (
-                  <motion.div
-                    key="done"
-                    className="rv-done"
-                    initial={motionOK ? { opacity: 0, scale: 0.9 } : { opacity: 0 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    transition={rvSpring}
-                  >
-                    <svg className="rv-done-check" width="44" height="44" viewBox="0 0 44 44" aria-hidden="true">
-                      <motion.circle
-                        cx="22"
-                        cy="22"
-                        r="19"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2.5"
-                        initial={motionOK ? { pathLength: 0 } : false}
-                        animate={{ pathLength: 1 }}
-                        transition={{ duration: 0.6, ease: "easeOut" }}
-                      />
-                      <motion.path
-                        d="M13 22.5l6 6 12-13"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="3"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        initial={motionOK ? { pathLength: 0 } : false}
-                        animate={{ pathLength: 1 }}
-                        transition={{ duration: 0.45, delay: 0.45, ease: "easeOut" }}
-                      />
-                    </svg>
-                    <div>
-                      <p className="rv-done-title">Session completed</p>
-                      <p className="rv-muted rv-small">
-                        Revision {detail.approval?.bundleRevision ?? detail.session.currentBundleRevision} is final. Files are ready.
-                      </p>
-                    </div>
-                  </motion.div>
-                ) : finalizing || status === "APPROVED" ? (
-                  <motion.p key="fin" className="rv-muted rv-small" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-                    Approval recorded — generating final documents…
-                  </motion.p>
-                ) : editable ? (
-                  <motion.div key="todo" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-                    <ApprovalChecklist
-                      bundle={bundle}
-                      dirty={dirty}
-                      saving={saving}
-                      approving={approving}
-                      canApprove={canApprove}
-                      approveReason={approveReason}
-                      onSave={() => void onSave()}
-                      onApprove={() => void onApprove()}
-                    />
-                  </motion.div>
-                ) : null}
-              </AnimatePresence>
-            </motion.section>
-
-            <AmendBanner detail={detail} />
-            {completed && !linkMode && <FilesCard sessionId={sessionId} revision={detail.approval?.bundleRevision ?? revision} />}
-
-            <TimePanel time={bundle.documents.timeSummary} />
-            <BillingPanel billing={bundle.billing} revision={bundle.bundleRevision} />
-            <ChecksPanel checks={bundle.checks} revision={bundle.bundleRevision} />
-            {editable && (
-              <CorrectionForm
-                values={values}
-                onChange={setValues}
-                onSave={() => void onSave()}
-                onDiscard={() => setValues(initialValues(bundle))}
-                dirty={dirty}
-                saving={saving}
-                scheduledMinutes={bundle.documents.timeSummary.scheduledMinutes}
-                currentConfirmed={currentConfirmed}
-                currentDirected={currentDirected}
-                currentChoices={currentChoices}
-                goals={bundle.config.plan.goals}
-                currentGoals={currentGoals}
-                currentSummary={currentSummary}
+              <DocumentSections sections={bundle.documents.sections} onEvidence={onEvidence} activeEvidence={highlight} />
+              <ClaimList
+                bundle={bundle}
+                timezone={tz}
+                editable={editable}
+                busy={saving}
+                onCite={onEvidence}
+                onSave={(edits) => applyEdits(edits)}
               />
-            )}
-            {editable && (
-              <motion.section className="ds-card ds-pad-md rv-card rv-approve" aria-label="Approve" variants={itemV}>
-                <ApproveButton
-                  revision={bundle.bundleRevision}
-                  pending={approving}
-                  disabled={!canApprove}
-                  describedBy={approveReason ? "rv-approve-reason" : undefined}
-                  onClick={() => void onApprove()}
-                />
-                {approveReason && (
-                  <p id="rv-approve-reason" className="rv-muted rv-small rv-approve-reason">
-                    {approveReason}
-                  </p>
-                )}
-              </motion.section>
-            )}
-            {detail.approval && !linkMode && <ApprovalRecordPanel approval={detail.approval} timezone={tz} completed={completed} />}
+              {refusedCount > 0 && editable && (
+                <p className="rvx-hint">
+                  {refusedCount} statement{refusedCount === 1 ? " was" : "s were"} refused by the rules — remove {refusedCount === 1 ? "it" : "them"} above, or ask the assistant.
+                </p>
+              )}
+            </Accordion>
+            <Accordion
+              id="checklist"
+              title="Checklist"
+              icon={<ListChecks size={16} />}
+              badge={blockers.checklist > 0 ? badge(blockers.checklist) : { text: "Ready", tone: "ok" }}
+              open={!!open.checklist}
+              onToggle={toggle("checklist")}
+            >
+              <ChecksPanel checks={bundle.checks} revision={bundle.bundleRevision} />
+            </Accordion>
+            <Accordion
+              id="invoice"
+              title="Invoice & time"
+              icon={<Receipt size={16} />}
+              badge={badge(blockers.invoice)}
+              open={!!open.invoice}
+              onToggle={toggle("invoice")}
+            >
+              <TimePanel time={bundle.documents.timeSummary} />
+              <BillingPanel billing={bundle.billing} revision={bundle.bundleRevision} />
+            </Accordion>
+            <Accordion
+              id="evidence"
+              title="Transcript & evidence"
+              icon={<MessagesSquare size={16} />}
+              badge={{ text: String(bundle.evidence.length), tone: "neutral" }}
+              open={!!open.evidence}
+              onToggle={toggle("evidence")}
+            >
+              <EvidencePanel evidence={bundle.evidence} timezone={tz} highlightId={highlight} focusTick={focusTick} />
+            </Accordion>
+            <Accordion
+              id="coverage"
+              title="Plan coverage"
+              icon={<Target size={16} />}
+              badge={badge(blockers.coverage)}
+              open={!!open.coverage}
+              onToggle={toggle("coverage")}
+            >
+              <PlanCoverage entries={bundle.documents.planCoverage} />
+            </Accordion>
             {!linkMode && (
-              <AmendCard
-                detail={detail}
-                onChanged={async () => {
-                  const d = await fetchDetail();
-                  if (d) setValues(initialValues(d.bundle));
-                }}
-              />
+              <Accordion id="runs" title="Run history (agent observations)" icon={<History size={16} />} open={!!open.runs} onToggle={toggle("runs")}>
+                <RunTimeline sessionId={sessionId} />
+              </Accordion>
             )}
-          </motion.aside>
+            {!linkMode && (
+              <Accordion id="files" title="Files" icon={<FolderOpen size={16} />} open={!!open.files} onToggle={toggle("files")}>
+                {completed ? (
+                  <FilesCard sessionId={sessionId} revision={detail.approval?.bundleRevision ?? revision} />
+                ) : (
+                  <p className="rvx-hint">Final PDFs and exports are created after approval.</p>
+                )}
+              </Accordion>
+            )}
+            {!linkMode && (
+              <Accordion id="amend" title="Amend & revisions" icon={<GitBranch size={16} />} open={!!open.amend} onToggle={toggle("amend")}>
+                <AmendBanner detail={detail} />
+                {detail.approval && <ApprovalRecordPanel approval={detail.approval} timezone={tz} completed={completed} />}
+                <AmendCard
+                  detail={detail}
+                  onChanged={async () => {
+                    const d = await fetchDetail();
+                    if (d) setValues(initialValues(d.bundle));
+                  }}
+                />
+              </Accordion>
+            )}
+            {chatOn && manualForm}
+          </div>
         </div>
       )}
     </motion.div>

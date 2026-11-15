@@ -96,9 +96,10 @@ function packet(seq) {
   return b;
 }
 
-async function streamScenario(s, streamUrl) {
+async function streamScenario(s, streamUrl, streamToken) {
   const tOpen = Date.now();
-  const ws = new WebSocket(streamUrl); // token auth (like the GlassCam bridge); never log the URL
+  // Token in the subprotocol (like the GlassCam bridge), never in the URL; never log the token.
+  const ws = new WebSocket(streamUrl, ["vfa-stream", `vfa-token.${streamToken}`]);
   ws.binaryType = "arraybuffer";
   const msgs = [];
   let readyResolve;
@@ -210,7 +211,7 @@ async function runScenario(s) {
   obs.startVisitMs = Date.now() - tStart;
   const visit = start.data.visit;
   obs.visitId = visit.id;
-  const st = await streamScenario(s, start.data.streamUrl);
+  const st = await streamScenario(s, start.data.streamUrl, start.data.streamToken);
   obs.stream = st;
   check("streamEnd", st.end.type === "done", `stream ended with ${JSON.stringify(st.end)} (no "done")`);
   check("finals", st.finals === s.script.length, `got ${st.finals} want ${s.script.length}`);

@@ -72,7 +72,8 @@ describe("band visit", () => {
     const visit = start.json.data.visit;
     expect(visit).toMatchObject({ clientRef: "C-104", status: "recording", transcriber: "simulated", bandNumber: 42 });
     expect(visit.appointmentId.startsWith("appt_visit_")).toBe(true);
-    expect(start.json.data.streamUrl).toMatch(/^ws:\/\/localhost:8787\/api\/visits\/visit_[0-9a-f]+\/stream\?token=/);
+    expect(start.json.data.streamUrl).toMatch(/^ws:\/\/localhost:8787\/api\/visits\/visit_[0-9a-f]+\/stream$/);
+    expect(start.json.data.streamToken).toEqual(expect.any(String));
 
     // While recording, discovery must not pick the visit up (appointment still open).
     await hh.req("/api/sync", { method: "POST", cookie });
@@ -139,10 +140,10 @@ describe("band visit", () => {
     h = hh;
     const start = await hh.req("/api/visits", { method: "POST", cookie, body: { clientRef: "C-104", bandNumber: null, transport: "ble" } });
     const visit = start.json.data.visit;
-    const token = new URL(start.json.data.streamUrl.replace(/^ws/, "http")).searchParams.get("token")!;
+    const token: string = start.json.data.streamToken;
     const path = `/api/visits/${visit.id}/stream`;
 
-    // valid token, no upgrade header → 426 (auth passed)
+    // valid (deprecated ?token=) token, no upgrade header → 426 (auth passed)
     expect((await hh.req(`${path}?token=${encodeURIComponent(token)}`, { origin: null })).status).toBe(426);
     // bad token
     expect((await hh.req(`${path}?token=nope`, { origin: null })).status).toBe(401);
@@ -150,13 +151,15 @@ describe("band visit", () => {
     const secret = String(hh.env.SESSION_SECRET);
     const wrong = await signStreamToken({ providerId: "provider_demo_001", visitId: "visit_other", nowMs: hh.clock.now().getTime() }, secret);
     expect((await hh.req(`${path}?token=${encodeURIComponent(wrong.token)}`, { origin: null })).status).toBe(401);
-    // cookie without Origin, or cross-origin → 403
-    expect((await hh.req(path, { cookie, origin: null })).status).toBe(403);
+    // cross-origin → 403 (cookie or not)
     expect((await hh.req(path, { cookie, origin: "https://evil.example" })).status).toBe(403);
+    expect((await hh.req(path, { origin: "https://evil.example" })).status).toBe(403);
     // cookie + same origin → passes auth (426)
     expect((await hh.req(path, { cookie })).status).toBe(426);
-    // nothing at all
-    expect((await hh.req(path, { origin: null })).status).toBe(403);
+    // no Origin (native bridge), no token → first-message auth after the upgrade (426 without one);
+    // the 1008 paths are in stream-auth.test.ts
+    expect((await hh.req(path, { cookie, origin: null })).status).toBe(426);
+    expect((await hh.req(path, { origin: null })).status).toBe(426);
   });
 });
 
@@ -164,7 +167,7 @@ describe("phone handoff (GlassCam)", () => {
   async function startBle(hh: V3Harness, cookie: string) {
     const start = await hh.req("/api/visits", { method: "POST", cookie, body: { clientRef: "C-104", bandNumber: 7, transport: "ble" } });
     expect(start.status, start.text).toBe(201);
-    const token = new URL(start.json.data.streamUrl.replace(/^ws/, "http")).searchParams.get("token")!;
+    const token: string = start.json.data.streamToken;
     return { visit: start.json.data.visit, token, streamUrl: start.json.data.streamUrl as string };
   }
 
@@ -174,7 +177,7 @@ describe("phone handoff (GlassCam)", () => {
     const env = hh.env as any;
     env.PUBLIC_STREAM_ORIGIN = "ws://192.168.1.20:8787/";
     const a = await startBle(hh, cookie);
-    expect(a.streamUrl).toMatch(new RegExp(`^ws://192\\.168\\.1\\.20:8787/api/visits/${a.visit.id}/stream\\?token=`));
+    expect(a.streamUrl).toBe(`ws://192.168.1.20:8787/api/visits/${a.visit.id}/stream`);
     env.PUBLIC_STREAM_ORIGIN = "wss://field.example.com";
     expect((await startBle(hh, cookie)).streamUrl.startsWith("wss://field.example.com/api/visits/")).toBe(true);
     env.PUBLIC_STREAM_ORIGIN = "https://field.example.com";

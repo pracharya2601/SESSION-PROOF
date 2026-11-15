@@ -5,7 +5,25 @@
  */
 import { InferenceError, type AiProviderId } from "../../contracts/v2";
 
+/** Default per-request timeout. Override with env AI_TIMEOUT_MS (see resolveProviderTimeoutMs). */
 export const PROVIDER_TIMEOUT_MS = 30_000;
+/** Default for reasoning models (OpenAI gpt-5 family / o-series), which think before answering. */
+export const REASONING_PROVIDER_TIMEOUT_MS = 90_000;
+const MIN_TIMEOUT_MS = 1_000;
+const MAX_TIMEOUT_MS = 600_000;
+
+/**
+ * Per-request timeout: env AI_TIMEOUT_MS when it is a whole number of ms in [1 s, 10 min],
+ * else 90 s for reasoning models, else 30 s.
+ */
+export function resolveProviderTimeoutMs(envValue: string | undefined, reasoningModel: boolean): number {
+  const raw = envValue?.trim();
+  if (raw && /^\d+$/.test(raw)) {
+    const n = Number(raw);
+    if (n >= MIN_TIMEOUT_MS && n <= MAX_TIMEOUT_MS) return n;
+  }
+  return reasoningModel ? REASONING_PROVIDER_TIMEOUT_MS : PROVIDER_TIMEOUT_MS;
+}
 
 export type FetchFn = typeof fetch;
 

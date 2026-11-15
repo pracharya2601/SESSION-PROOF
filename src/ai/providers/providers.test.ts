@@ -2,7 +2,17 @@ import { describe, expect, it } from "vitest";
 import { InferenceError, type AiProviderId, type InferenceRequest } from "../../contracts/v2";
 import type { Env } from "../../env";
 import { jsonSchemaSessionFacts } from "../../contracts/jsonSchema";
-import { aiProviderStatuses, apiKeyFor, createInferenceProvider, parseRetryAfter, toGeminiSchema } from "./index";
+import {
+  aiProviderStatuses,
+  apiKeyFor,
+  createInferenceProvider,
+  isOpenAiReasoningModel,
+  parseRetryAfter,
+  PROVIDER_TIMEOUT_MS,
+  REASONING_PROVIDER_TIMEOUT_MS,
+  resolveProviderTimeoutMs,
+  toGeminiSchema,
+} from "./index";
 
 function env(over: Partial<Env> = {}): Env {
   return {
@@ -301,5 +311,45 @@ describe("parseRetryAfter", () => {
     expect(parseRetryAfter("garbage")).toBeUndefined();
     const now = Date.parse("2026-11-13T00:00:00Z");
     expect(parseRetryAfter("Fri, 13 Nov 2026 00:00:05 GMT", now)).toBe(5000);
+  });
+});
+
+describe("OpenAI reasoning models + timeouts", () => {
+  it("gpt-5* / o* send max_completion_tokens (never max_tokens); others keep max_tokens", async () => {
+    for (const model of ["gpt-5", "gpt-5-mini", "gpt-5.1", "o3-mini", "o4-mini", "o1"]) {
+      const { fn, calls } = fakeFetch([json(okBody.openai)]);
+      await createInferenceProvider(env(), { provider: "openai", model }, { fetch: fn }).generateStructured(req);
+      const b = JSON.parse(String(calls[0]!.init.body));
+      expect(b.max_tokens, model).toBeUndefined();
+      expect(b.max_completion_tokens, model).toBeGreaterThanOrEqual(123);
+    }
+    for (const model of ["gpt-4.1", "gpt-4.1-mini", "gpt-4o", "omni-custom"]) {
+      const { fn, calls } = fakeFetch([json(okBody.openai)]);
+      await createInferenceProvider(env(), { provider: "openai", model }, { fetch: fn }).generateStructured(req);
+      const b = JSON.parse(String(calls[0]!.init.body));
+      expect(b.max_tokens, model).toBe(123);
+      expect(b.max_completion_tokens, model).toBeUndefined();
+    }
+    expect(isOpenAiReasoningModel("openai/gpt-5-mini")).toBe(true);
+    expect(isOpenAiReasoningModel("gpt-50")).toBe(false);
+  });
+
+  it("timeout: AI_TIMEOUT_MS when valid, else 90 s for reasoning models, else 30 s", () => {
+    expect(resolveProviderTimeoutMs(undefined, false)).toBe(PROVIDER_TIMEOUT_MS);
+    expect(PROVIDER_TIMEOUT_MS).toBe(30_000);
+    expect(resolveProviderTimeoutMs(undefined, true)).toBe(REASONING_PROVIDER_TIMEOUT_MS);
+    expect(REASONING_PROVIDER_TIMEOUT_MS).toBe(90_000);
+    expect(resolveProviderTimeoutMs("45000", false)).toBe(45_000);
+    expect(resolveProviderTimeoutMs("45000", true)).toBe(45_000);
+    for (const bad of ["", "abc", "-5", "10", "999999999", "1.5"]) expect(resolveProviderTimeoutMs(bad, false), bad).toBe(30_000);
+  });
+
+  it("the configured timeout is applied to the request", async () => {
+    const hang = (async (_u: RequestInfo | URL, init?: RequestInit) =>
+      new Promise<Response>((_, rej) => init?.signal?.addEventListener("abort", () => rej(Object.assign(new Error("t"), { name: "TimeoutError" }))))) as typeof fetch;
+    const t0 = Date.now();
+    const p = createInferenceProvider(env({ AI_TIMEOUT_MS: "1000" } as Partial<Env>), { provider: "openai", model: "gpt-5-mini" }, { fetch: hang }).generateStructured(req);
+    await expect(p).rejects.toMatchObject({ kind: "timeout" });
+    expect(Date.now() - t0).toBeLessThan(5000);
   });
 });

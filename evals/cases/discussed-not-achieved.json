@@ -1,0 +1,106 @@
+{
+  "id": "discussed-not-achieved",
+  "title": "Job application discussed but not submitted",
+  "purpose": "'Discussed' is not 'achieved': the website was down, nothing was submitted.",
+  "tags": [
+    "discussed"
+  ],
+  "sdpCode": "335",
+  "client": {
+    "clientRef": "EV-JOB-01",
+    "displayName": "Kai Evalmore (synthetic)",
+    "preferredName": "Kai"
+  },
+  "plan": {
+    "serviceCode": "CA-SDP-335",
+    "serviceDescription": "Employment Supports: job search (synthetic plan)",
+    "goals": [
+      {
+        "goalId": "goal_application",
+        "objective": "Submit one job application online."
+      },
+      {
+        "goalId": "goal_interview",
+        "objective": "Practice answering interview questions."
+      }
+    ]
+  },
+  "hourlyRateCents": 4780,
+  "transcript": [
+    {
+      "t": 2,
+      "d": 5,
+      "speaker": "Speaker 0",
+      "text": "This week we were going to submit the grocery store application."
+    },
+    {
+      "t": 10,
+      "d": 5,
+      "speaker": "Speaker 1",
+      "text": "The website was down so I couldn't send it."
+    },
+    {
+      "t": 18,
+      "d": 5,
+      "speaker": "Speaker 0",
+      "text": "Let's practice interview questions instead. Tell me about a time you helped someone."
+    },
+    {
+      "t": 26,
+      "d": 5,
+      "speaker": "Speaker 1",
+      "text": "I helped my neighbor carry boxes when she moved."
+    },
+    {
+      "t": 34,
+      "d": 5,
+      "speaker": "Speaker 0",
+      "text": "That's a good answer; next time add what you learned."
+    },
+    {
+      "t": 42,
+      "d": 5,
+      "speaker": "Speaker 0",
+      "text": "We will try the application again on Thursday."
+    }
+  ],
+  "fake": {
+    "keywords": {
+      "goal_application": [
+        "application"
+      ],
+      "goal_interview": [
+        "interview",
+        "answer"
+      ]
+    },
+    "bad": [
+      {
+        "section": "goal:goal_application",
+        "text": "Submitted one job application online.",
+        "cite": [
+          "ev_001"
+        ],
+        "label": "discussed_not_achieved"
+      }
+    ]
+  },
+  "expect": {
+    "mustAddress": [
+      "goal_interview"
+    ],
+    "forbiddenClaims": [
+      {
+        "id": "submitted",
+        "pattern": "(submitted|sent|completed) (the |an |one )?(job |grocery store )?application",
+        "kind": "discussed_not_achieved"
+      },
+      {
+        "id": "hired",
+        "pattern": "hired|got (the|a) job|ready for (the |a )?job",
+        "kind": "invented_progress"
+      }
+    ],
+    "approvableAfterDuration": false
+  }
+}

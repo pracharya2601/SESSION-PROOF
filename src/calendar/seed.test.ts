@@ -28,11 +28,11 @@ describe("seedDemoData client", () => {
     await seedDemoData(f.repo);
     const rec = f.clients.get(`${DEMO_PROVIDER_ID}|C-104`)!;
     expect(demoAppointment.clientRef).toBe("C-104");
-    expect(rec).toMatchObject({ displayName: "Sam Rivera (synthetic)", preferredName: "Sam", hourlyRateCents: null, active: true });
+    expect(rec).toMatchObject({ displayName: "Sam Rivera", preferredName: "Sam", hourlyRateCents: null, active: true });
     rec.displayName = "Edited by provider";
     await seedDemoData(f.repo);
     expect(f.upserts()).toBe(1);
     expect(f.clients.get(`${DEMO_PROVIDER_ID}|C-104`)!.displayName).toBe("Edited by provider");
-    expect(demoClientInput.customFields).toEqual([{ label: "Program", value: "ILS Demo" }]);
+    expect(demoClientInput.customFields).toEqual([{ label: "Program", value: "Independent living skills" }]);
   });
 });

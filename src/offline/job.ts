@@ -54,6 +54,18 @@ export interface OfflineJobDeps {
   /** jobs.enqueueAppointment (+ the "visit sent" notification), as the stop route uses. */
   enqueueAppointment: (appt: Appointment) => Promise<{ sessionId: string }>;
   maxAttempts?: number;
+  /** Offline uploads that target a client-less recording (src/recordings). Absent → such jobs fail. */
+  recordings?: OfflineRecordingTarget;
+}
+
+/** What the job needs from src/recordings for a row with target "recording". */
+export interface OfflineRecordingTarget {
+  /** The recording's transcriber, or null when it is not the provider's. */
+  transcriberOf(providerId: string, recordingId: string): Promise<string | null>;
+  /** Segments, stats and audio start of the recording (band_segments keyed by the recording id). */
+  capture: Pick<VisitStore, "deleteSegments" | "saveSegments" | "setAudioStarted" | "updateStats">;
+  /** Transcript stored → queue the partition job (idempotent; the partition is too). */
+  enqueuePartition(providerId: string, recordingId: string): Promise<void>;
 }
 
 export type JobOutcome = { retry: false } | { retry: true; delaySeconds: number };
@@ -165,12 +177,12 @@ function asFailure(err: unknown): OfflineFailure {
   return new OfflineFailure("INTERNAL", `Unexpected error (${err instanceof Error ? err.name : "unknown"}).`, true, true);
 }
 
-async function transcribe(deps: OfflineJobDeps, visitId: string, transcriber: string, key: string) {
+async function transcribe(deps: OfflineJobDeps, visitId: string, transcriber: string, key: string, kind: "visit" | "recording" = "visit") {
   if (!deps.bucket) throw new OfflineFailure("OFFLINE_NOT_CONFIGURED", "Offline audio storage (AUDIO_TMP) is not configured.", false, true);
   const obj = await deps.bucket.get(key);
   if (!obj) throw new OfflineFailure("AUDIO_MISSING", "The uploaded file is no longer stored; upload it again.", false, true);
   const bytes = new Uint8Array(await obj.arrayBuffer());
-  const parsed = parseVxrec(bytes);
+  const parsed = parseVxrec(bytes, { kind });
   const timeline = buildTimeline(parsed.runs);
   if (timeline.packets.length === 0) throw new OfflineFailure("FILE_NO_AUDIO", "The recording holds no audio packets.", false, false);
   let pieces: TranscriptPiece[];
@@ -229,9 +241,17 @@ export async function runOfflineTranscription(deps: OfflineJobDeps, job: Offline
     log("warn", "offline.job_unknown_visit", { visitId });
     return { retry: false };
   }
+  const isRecording = row.target === "recording";
+  if (isRecording && !deps.recordings) {
+    log("warn", "offline.recordings_not_wired", { visitId });
+    return { retry: false };
+  }
+  const writer = isRecording ? deps.recordings!.capture : deps.visits;
   if (row.status === "transcribing") {
-    const visit = await deps.visits.getVisit(providerId, visitId);
-    if (!visit || !row.audioKey) {
+    const transcriber = isRecording
+      ? await deps.recordings!.transcriberOf(providerId, visitId)
+      : ((await deps.visits.getVisit(providerId, visitId))?.transcriber ?? null);
+    if (!transcriber || !row.audioKey) {
       await deps.store.markFailed(visitId, {
         code: "AUDIO_MISSING",
         message: "The uploaded file is no longer stored; upload it again.",
@@ -244,12 +264,12 @@ export async function runOfflineTranscription(deps: OfflineJobDeps, job: Offline
     await deps.store.startAttempt(visitId, attempt, deps.clock.now().toISOString());
     const started = Date.now();
     try {
-      const r = await transcribe(deps, visitId, visit.transcriber, row.audioKey);
+      const r = await transcribe(deps, visitId, transcriber, row.audioKey, row.target);
       const now = deps.clock.now().toISOString();
-      await deps.visits.deleteSegments(visitId);
-      await deps.visits.saveSegments(providerId, r.segments, now);
-      await deps.visits.setAudioStarted(visitId, new Date(r.timeline.firstMs).toISOString());
-      await deps.visits.updateStats(visitId, r.timeline.packets.length, r.timeline.lostPackets);
+      await writer.deleteSegments(visitId);
+      await writer.saveSegments(providerId, r.segments, now);
+      await writer.setAudioStarted(visitId, new Date(r.timeline.firstMs).toISOString());
+      await writer.updateStats(visitId, r.timeline.packets.length, r.timeline.lostPackets);
       await deps.store.markTranscribed(visitId, now);
       log("info", "offline.transcribed", {
         visitId,
@@ -287,6 +307,11 @@ export async function runOfflineTranscription(deps: OfflineJobDeps, job: Offline
     return { retry: false };
   }
   try {
+    if (isRecording) {
+      await deps.recordings!.enqueuePartition(providerId, visitId);
+      log("info", "offline.recording_handed_off", { visitId });
+      return { retry: false };
+    }
     const sessionId = await handOff(deps, providerId, visitId);
     log("info", "offline.handed_off", { visitId, sessionId });
     return { retry: false };

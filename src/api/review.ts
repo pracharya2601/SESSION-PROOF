@@ -6,6 +6,7 @@ import { apiError } from "../security/index";
 import { ServiceError, approveSession, saveReview } from "../services/approval/index";
 import { amendSession } from "../services/approval/amend";
 import { safeRecord } from "../history/index";
+import { gateReviewBundle } from "../services/profile/index";
 import type { Actor, ApiDeps, AppBindings } from "./deps";
 import { ok } from "./respond";
 
@@ -79,7 +80,7 @@ export function reviewRoutes(deps: ApiDeps): Hono<AppBindings> {
         },
         idSuffix: `r${bundle.bundleRevision}`,
       });
-      return ok(c, bundle);
+      return ok(c, (await gateReviewBundle(deps.repo, c.get("actor").providerId, bundle, true)) ?? bundle);
     } catch (err) {
       return fromServiceError(c, err);
     }

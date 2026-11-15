@@ -50,7 +50,35 @@ function Page({ model, frags, index, total, measureRef }: { model: DocModel; fra
       style={{ ...themeStyle(model), width: paper.cssW, height: paper.cssH }}
       aria-label={total > 0 ? `Page ${index + 1} of ${total}` : undefined}
     >
-      {first ? (
+      {model.watermark && (
+        <div className="dp-watermark" aria-hidden="true">
+          <span>{model.watermark}</span>
+        </div>
+      )}
+      {first && model.letterhead ? (
+        <header className="dp-lh">
+          <div className="dp-lh-biz">
+            {model.letterhead.logoDataUrl && <img className="dp-lh-logo" src={model.letterhead.logoDataUrl} alt="" />}
+            <div className={model.letterhead.incomplete && model.letterhead.name.startsWith("[") ? "dp-lh-name dp-placeholder" : "dp-lh-name"}>{model.letterhead.name}</div>
+            {model.letterhead.lines.map((l, k) => (
+              <div key={k} className={l.startsWith("[") || l.includes("[not set]") || l.startsWith("Complete Settings") ? "dp-lh-line dp-placeholder" : "dp-lh-line"}>
+                {l}
+              </div>
+            ))}
+          </div>
+          <div className="dp-lh-doc">
+            <h1 className="dp-lh-title">{model.title}</h1>
+            <dl className="dp-meta">
+              {model.letterhead.meta.map((m, k) => (
+                <div key={k}>
+                  <dt>{m.label}</dt>
+                  <dd>{m.value}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+        </header>
+      ) : first ? (
         <header className="dp-head">
           <div className="dp-head-main">
             {h.logoText && <div className="dp-logo">{h.logoText}</div>}
@@ -100,7 +128,7 @@ function Page({ model, frags, index, total, measureRef }: { model: DocModel; fra
 }
 
 function measureBlocks(body: HTMLElement, model: DocModel): BlockMeasure[] {
-  const out: BlockMeasure[] = model.blocks.map((b) => ({ h: 0, base: 0, parts: null, heading: b.type === "heading" }));
+  const out: BlockMeasure[] = model.blocks.map((b) => ({ h: 0, base: 0, parts: null, heading: b.type === "heading", brk: b.type === "pagebreak" }));
   body.querySelectorAll<HTMLElement>("[data-mi]").forEach((el) => {
     const i = Number(el.dataset.mi);
     const b = model.blocks[i];

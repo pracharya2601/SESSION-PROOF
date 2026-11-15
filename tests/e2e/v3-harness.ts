@@ -83,6 +83,8 @@ export async function createV3Harness(opts: { variant?: string } = {}): Promise<
       approval,
     );
 
+  const recordingsMod = await import("../../src/recordings");
+  const scheduleMod = await import("../../src/schedule");
   const makeExtractor = () =>
     mods.ai.createExtractor(env, {
       fetch: h.cloud.fetch,
@@ -106,6 +108,9 @@ export async function createV3Harness(opts: { variant?: string } = {}): Promise<
     onCompleted: (sessionId: string) => h.v2.delivery.onSessionCompleted(deliveryDeps, sessionId),
     recorder,
     resolveClient,
+    // Mirrors src/index.ts: calendar appointments (appt_cal_*) get Drive + visit context; others null.
+    resolveDriveContext: recordingsMod.driveContextResolver(new scheduleMod.DemoDriveSource()),
+    resolveVisitContext: recordingsMod.visitContextResolver({ store: recordingsMod.createRecordingStore(h.db), calendar: new scheduleMod.DemoCalendarSource({ clock }) }),
   };
   h.workflow.run = (params, step) => mods.workflow.runSessionWorkflow(workflowDeps, params, step);
 

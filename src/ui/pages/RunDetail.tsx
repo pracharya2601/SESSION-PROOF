@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { motion, useReducedMotion } from "framer-motion";
-import { ArrowUpRight, Clock, ListOrdered, Route, Workflow } from "lucide-react";
+import { Archive, ArchiveRestore, ArrowUpRight, Clock, ListOrdered, Route, Trash2, Workflow } from "lucide-react";
 import type { RunDetail as RunDetailData } from "../../contracts";
 import { api, ApiClientError } from "../api";
-import { Card, EmptyState, ErrorNotice, PageHeader, Skeleton, fadeOnly, fadeUp, stagger } from "../design";
+import { Button, Card, EmptyState, ErrorNotice, PageHeader, Skeleton, fadeOnly, fadeUp, stagger, useToast } from "../design";
+import { ConfirmDelete } from "../components/recordings/ConfirmDelete";
 import { EventTimeline } from "../components/runs/EventTimeline";
 import { PipelineGraph } from "../components/runs/PipelineGraph";
 import { ModelChip, RunStatusIcon } from "../components/runs/RunBits";
@@ -30,6 +31,10 @@ export default function RunDetail(props: { runId: string }) {
   const reduce = useReducedMotion();
   const [data, setData] = useState<RunDetailData | null>(null);
   const [error, setError] = useState<unknown>(null);
+  const [archived, setArchived] = useState(false);
+  const [archiving, setArchiving] = useState(false);
+  const [confirm, setConfirm] = useState(false);
+  const toast = useToast();
   const mounted = useRef(true);
 
   useEffect(() => {
@@ -41,9 +46,13 @@ export default function RunDetail(props: { runId: string }) {
 
   const load = useCallback(async () => {
     try {
-      const d = await api.getRun(runId);
+      const [d, arch] = await Promise.all([
+        api.getRun(runId),
+        api.listArchived("run").then((r) => r.items.some((i) => i.id === runId)).catch(() => false),
+      ]);
       if (!mounted.current) return;
       setData(d);
+      setArchived(arch);
       setError(null);
     } catch (e) {
       if (mounted.current) setError(e);
@@ -83,6 +92,21 @@ export default function RunDetail(props: { runId: string }) {
   }
 
   const s = data.summary;
+
+  async function toggleArchive() {
+    setArchiving(true);
+    try {
+      if (archived) await api.unarchive("run", runId);
+      else await api.archive("run", runId);
+      toast.success(archived ? "Run restored" : "Run archived", archived ? undefined : "Hidden from Run history.");
+      await load();
+    } catch (e) {
+      toast.error("Could not update the run", e instanceof Error ? e.message : undefined);
+    } finally {
+      setArchiving(false);
+    }
+  }
+
   return (
     <motion.div className="rn-page" variants={stagger} initial="hidden" animate="show">
       <PageHeader
@@ -92,10 +116,44 @@ export default function RunDetail(props: { runId: string }) {
         onBack={goBack}
         backLabel="All runs"
         actions={
-          <a className="ds-btn ds-btn-secondary ds-btn-sm" href={sessionHref(s.sessionId)}>
-            Session review <ArrowUpRight size={14} aria-hidden="true" />
-          </a>
+          <>
+            <a className="ds-btn ds-btn-secondary ds-btn-sm" href={sessionHref(s.sessionId)}>
+              Session review <ArrowUpRight size={14} aria-hidden="true" />
+            </a>
+            <Button size="sm" icon={archived ? <ArchiveRestore size={14} /> : <Archive size={14} />} loading={archiving} onClick={() => void toggleArchive()}>
+              {archived ? "Unarchive" : "Archive"}
+            </Button>
+            <Button size="sm" variant="ghost" iconOnly aria-label="Delete run" title="Delete run" icon={<Trash2 size={14} />} disabled={active} onClick={() => setConfirm(true)} />
+          </>
         }
+      />
+      <ConfirmDelete
+        open={confirm}
+        onClose={() => setConfirm(false)}
+        title="Delete run history?"
+        summary={[
+          { label: "Run", value: <span className="mono tiny">{s.runId}</span> },
+          { label: "Kind", value: kindLabel(s.runKind) },
+          { label: "Client", value: s.clientRef ?? "Unknown" },
+          { label: "Events", value: String(s.eventCount) },
+        ]}
+        notes={[
+          "Deletes this run's events from Run history.",
+          s.runKind === "delivery"
+            ? "Delivery runs can be deleted; the session and its files are not touched."
+            : "A processing run is kept while its session exists (it is that draft's audit trail). Archive it instead, or delete the draft session.",
+          "An audit entry (who, when, which run) is kept.",
+        ]}
+        onConfirm={async () => {
+          await api.deleteRun(runId);
+          toast.success("Run deleted");
+          goBack();
+        }}
+        onArchiveInstead={async () => {
+          await api.archive("run", runId);
+          toast.success("Run archived", "Hidden from Run history.");
+          await load();
+        }}
       />
 
       <motion.div variants={item}>

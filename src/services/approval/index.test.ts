@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { approveSession, saveReview, ServiceError } from "./index";
-import { makeDeps, PROVIDER, SESSION } from "./testkit";
+import { makeBundle, makeDeps, PROVIDER, SESSION } from "./testkit";
 
 const actor = { providerId: PROVIDER, identity: "p@example.test" };
 
@@ -71,6 +71,25 @@ describe("saveReview", () => {
     // [] clears the confirmation, keeps the summary
     const b3 = await saveReview(deps, actor, SESSION, { expectedRevision: 2, edits: { goalsAddressed: [] } });
     expect(b3.attestations.map((a) => a.field)).toEqual(["activity_summary"]);
+  });
+
+  it("records rejected claims (draft claim ids only, with reasons); a new list replaces the old", async () => {
+    const { deps, repo } = makeDeps();
+    const claim = { id: "c1", text: "Can now plan tasks every week.", evidenceIds: ["ev-1"], support: "supported" as const };
+    const facts = { activities: [claim], observations: [], goals: [], progress: [], followUps: [], missingInformation: [] };
+    repo.bundles.set(`${SESSION}:1`, makeBundle({ extractedFacts: facts, facts }));
+    expect(
+      await code(saveReview(deps, actor, SESSION, { expectedRevision: 1, edits: { rejectedClaims: [{ claimId: "nope", reason: "not said" }] } })),
+    ).toBe("422:UNKNOWN_CLAIM");
+    const b2 = await saveReview(deps, actor, SESSION, {
+      expectedRevision: 1,
+      edits: { rejectedClaims: [{ claimId: "c1", reason: "Overstates one visit" }] },
+    });
+    expect(b2.attestations.map((a) => [a.id, a.field, a.text, a.actorProviderId])).toEqual([
+      [`att-${SESSION}-r2-claim_rejected-1`, "claim_rejected", "c1\nOverstates one visit", PROVIDER],
+    ]);
+    const b3 = await saveReview(deps, actor, SESSION, { expectedRevision: 2, edits: { rejectedClaims: [] } });
+    expect(b3.attestations).toEqual([]);
   });
 
   it("rejects stale revision, foreign session, and post-approval edits", async () => {

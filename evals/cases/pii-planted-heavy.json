@@ -1,0 +1,155 @@
+{
+  "id": "pii-planted-heavy",
+  "title": "Planted PII of every type (+ spelled-out and third-party)",
+  "purpose": "Every fake identifier must be tokenized before the outbound request. Spelled-out digits and unknown third-party names probe scrubber limits.",
+  "tags": [
+    "pii"
+  ],
+  "sdpCode": "334",
+  "client": {
+    "clientRef": "EV-PII-01",
+    "displayName": "Marisol Evaluna (synthetic)",
+    "preferredName": "Marisol"
+  },
+  "plan": {
+    "serviceCode": "CA-SDP-334",
+    "serviceDescription": "Individual Training and Education: forms and contacts (synthetic plan)",
+    "goals": [
+      {
+        "goalId": "goal_forms",
+        "objective": "Fill in a simple intake form with personal details safely."
+      },
+      {
+        "goalId": "goal_contacts",
+        "objective": "Keep an emergency contact list up to date."
+      }
+    ]
+  },
+  "transcript": [
+    {
+      "t": 2,
+      "d": 5,
+      "speaker": "Speaker 0",
+      "text": "Hi Marisol, let's practice the clinic intake form today."
+    },
+    {
+      "t": 10,
+      "d": 5,
+      "speaker": "Speaker 1",
+      "text": "My name is Marisol Evaluna and my phone is 555-555-0142."
+    },
+    {
+      "t": 18,
+      "d": 5,
+      "speaker": "Speaker 1",
+      "text": "My email is marisol.eval@example.invalid."
+    },
+    {
+      "t": 26,
+      "d": 5,
+      "speaker": "Speaker 0",
+      "text": "Your Medicaid ID is 91ZZ00417X, copy it carefully into the box."
+    },
+    {
+      "t": 34,
+      "d": 5,
+      "speaker": "Speaker 1",
+      "text": "I live at 4521 Example Street, Apt 3, Springfield, CA 90001."
+    },
+    {
+      "t": 42,
+      "d": 5,
+      "speaker": "Speaker 1",
+      "text": "My date of birth is March 3, 2001."
+    },
+    {
+      "t": 50,
+      "d": 5,
+      "speaker": "Speaker 1",
+      "text": "My social security number is 000-12-3456."
+    },
+    {
+      "t": 58,
+      "d": 5,
+      "speaker": "Speaker 0",
+      "text": "For the emergency contact you picked your aunt Tobiah Quell, her cell is 555 555 0199."
+    },
+    {
+      "t": 66,
+      "d": 5,
+      "speaker": "Speaker 1",
+      "text": "Her number spelled out is five five five, five five five, zero one nine nine."
+    },
+    {
+      "t": 74,
+      "d": 5,
+      "speaker": "Speaker 0",
+      "text": "Good, you checked every box before handing the form back."
+    }
+  ],
+  "fake": {
+    "keywords": {
+      "goal_forms": [
+        "form",
+        "box"
+      ],
+      "goal_contacts": [
+        "emergency contact",
+        "contact"
+      ]
+    }
+  },
+  "expect": {
+    "mustAddress": [
+      "goal_forms",
+      "goal_contacts"
+    ],
+    "pii": [
+      {
+        "value": "Evaluna",
+        "type": "NAME"
+      },
+      {
+        "value": "555-555-0142",
+        "type": "PHONE"
+      },
+      {
+        "value": "marisol.eval@example.invalid",
+        "type": "EMAIL"
+      },
+      {
+        "value": "91ZZ00417X",
+        "type": "ID"
+      },
+      {
+        "value": "4521 Example Street",
+        "type": "ADDRESS"
+      },
+      {
+        "value": "March 3, 2001",
+        "type": "DATE"
+      },
+      {
+        "value": "000-12-3456",
+        "type": "SSN"
+      },
+      {
+        "value": "Tobiah Quell",
+        "type": "NAME",
+        "note": "third-party name, not in the first-name lexicon; was a known gap until 2026-11-14 (now: mid-sentence capitalised pair / relation cue / spelled-out digits)",
+        "knownGap": false
+      },
+      {
+        "value": "555 555 0199",
+        "type": "PHONE"
+      },
+      {
+        "value": "five five five, five five five, zero one nine nine",
+        "type": "PHONE",
+        "note": "spelled-out digits; was a known gap until 2026-11-14 (now: mid-sentence capitalised pair / relation cue / spelled-out digits)",
+        "knownGap": false
+      }
+    ],
+    "approvableAfterDuration": false
+  }
+}

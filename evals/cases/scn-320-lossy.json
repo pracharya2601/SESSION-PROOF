@@ -1,0 +1,33 @@
+{
+  "id": "scn-320-lossy",
+  "title": "SDP 320 Bluetooth packet loss",
+  "purpose": "Partial evidence: PARTIAL_EVIDENCE is nonblocking; claims must still cite.",
+  "tags": [
+    "scenario",
+    "sdp",
+    "partial"
+  ],
+  "fromScenario": "lossy-bluetooth",
+  "sdpCode": "320",
+  "fake": {
+    "keywords": {
+      "goal_dishes": [
+        "dishes",
+        "plates",
+        "cups"
+      ],
+      "goal_recycling": [
+        "recycling",
+        "cardboard",
+        "bin"
+      ]
+    }
+  },
+  "expect": {
+    "mustAddress": [
+      "goal_dishes",
+      "goal_recycling"
+    ],
+    "approvableAfterDuration": false
+  }
+}

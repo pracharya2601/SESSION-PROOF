@@ -29,6 +29,7 @@ import type {
 } from "../contracts";
 import type { PendingDelivery, Repository } from "../db/repository";
 import { safeRecord } from "../history/index";
+import { CALENDAR_APPOINTMENT_PREFIX, PartitionRecordingJob } from "../recordings/contract";
 
 export interface JobDeps {
   repo: Repository;
@@ -49,6 +50,14 @@ export interface JobDeps {
    */
   transcribeOffline?: (
     job: OfflineTranscribeJob,
+    attempt: number,
+  ) => Promise<{ retry: false } | { retry: true; delaySeconds: number }>;
+  /**
+   * Recordings: runs one "partition_recording" queue message (src/recordings/partition.ts).
+   * Absent → such messages are acked and logged.
+   */
+  partitionRecording?: (
+    job: PartitionRecordingJob,
     attempt: number,
   ) => Promise<{ retry: false } | { retry: true; delaySeconds: number }>;
 }
@@ -104,6 +113,9 @@ export async function discoverSessions(deps: JobDeps, opts: DiscoverOptions = {}
   const summary: DiscoverySummary = { examined: 0, created: 0, enqueued: 0, skipped: 0 };
 
   for (const appt of appointments) {
+    // Calendar appointments get sessions ONLY from the recording partitioner (src/recordings):
+    // an event with no recorded segments never gets a session.
+    if (appt.id.startsWith(CALENDAR_APPOINTMENT_PREFIX)) continue;
     summary.examined++;
     const r = await enqueueAppointment(deps, appt);
     if (r.created) summary.created++;
@@ -252,6 +264,11 @@ export async function dispatchPendingDeliveries(deps: JobDeps): Promise<Dispatch
 // ------------------------------------------------------------------ queue consumer
 export async function handleQueueBatch(batch: MessageBatch<unknown>, deps: JobDeps): Promise<void> {
   for (const msg of batch.messages) {
+    const partition = PartitionRecordingJob.safeParse(msg.body);
+    if (partition.success) {
+      await handlePartitionMessage(msg, partition.data, deps);
+      continue;
+    }
     const offline = OfflineTranscribeJob.safeParse(msg.body);
     if (offline.success) {
       await handleOfflineMessage(msg, offline.data, deps);
@@ -292,6 +309,22 @@ export async function handleQueueBatch(batch: MessageBatch<unknown>, deps: JobDe
       log("queue.retry", { messageId: msg.id, sessionId, processingRevision, error: errKind(err) });
       msg.retry();
     }
+  }
+}
+
+async function handlePartitionMessage(msg: Message<unknown>, job: PartitionRecordingJob, deps: JobDeps): Promise<void> {
+  if (!deps.partitionRecording) {
+    log("queue.partition_not_wired", { messageId: msg.id, recordingId: job.recordingId });
+    msg.ack();
+    return;
+  }
+  try {
+    const r = await deps.partitionRecording(job, Math.max(1, Number(msg.attempts ?? 1)));
+    if (r.retry) msg.retry({ delaySeconds: r.delaySeconds });
+    else msg.ack();
+  } catch (err) {
+    log("queue.partition_retry", { messageId: msg.id, recordingId: job.recordingId, error: errKind(err) });
+    msg.retry();
   }
 }
 

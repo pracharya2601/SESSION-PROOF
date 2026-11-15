@@ -5,7 +5,7 @@
  * "Page n of m" on every page, automatic page breaks, table headers repeated
  * after page breaks. Every string drawn goes through the WinAnsi sanitizer.
  */
-import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage, type RGB } from "pdf-lib";
+import { PDFDocument, StandardFonts, degrees, rgb, type PDFFont, type PDFImage, type PDFPage, type RGB } from "pdf-lib";
 import { toWinAnsi, toWinAnsiMultiline } from "./winansi";
 
 export const APP_NAME = "Vexo Field Assistant";
@@ -81,6 +81,32 @@ export interface WriterOptions {
   footerLeft: string;
   metadata: { title: string; subject: string; keywords: string[]; date?: Date };
   theme?: Partial<WriterTheme>;
+  /** Letterhead on page 1 instead of the band (business block left, title + meta right). */
+  letterhead?: {
+    name: string;
+    lines: string[];
+    /** PNG/JPEG data URL; unreadable images are skipped. */
+    logoDataUrl: string | null;
+    meta: [string, string][];
+    incomplete?: boolean;
+  } | null;
+  /** Diagonal watermark drawn on every page; null = none. */
+  watermark?: string | null;
+}
+
+/** data:image/(png|jpeg);base64,... → bytes + kind, or null. */
+export function decodeImageDataUrl(url: string | null | undefined): { bytes: Uint8Array; kind: "png" | "jpeg" } | null {
+  if (!url) return null;
+  const m = /^data:image\/(png|jpeg);base64,([A-Za-z0-9+/]+=*)$/.exec(url);
+  if (!m) return null;
+  try {
+    const bin = atob(m[2]!);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return { bytes, kind: m[1] as "png" | "jpeg" };
+  } catch {
+    return null;
+  }
 }
 
 type FontKey = "regular" | "bold" | "italic";
@@ -110,6 +136,7 @@ export class PdfWriter {
     private readonly fonts: Record<FontKey, PDFFont>,
     private readonly opts: WriterOptions,
     theme: WriterTheme,
+    private readonly logo: PDFImage | null = null,
   ) {
     const [w, h] = PAPER_SIZES[theme.paper];
     this.pageW = w;
@@ -157,7 +184,16 @@ export class PdfWriter {
       doc.setCreationDate(m.date);
       doc.setModificationDate(m.date);
     }
-    return new PdfWriter(doc, { regular, bold, italic }, opts, theme);
+    let logo: PDFImage | null = null;
+    const img = decodeImageDataUrl(opts.letterhead?.logoDataUrl);
+    if (img) {
+      try {
+        logo = img.kind === "png" ? await doc.embedPng(img.bytes) : await doc.embedJpg(img.bytes);
+      } catch {
+        logo = null; // unreadable logo: letterhead without it
+      }
+    }
+    return new PdfWriter(doc, { regular, bold, italic }, opts, theme, logo);
   }
 
   /** Scaled vertical spacing. */
@@ -219,8 +255,10 @@ export class PdfWriter {
   private newPage() {
     this.page = this.doc.addPage([this.pageW, this.pageH]);
     this.pages.push(this.page);
-    if (this.pages.length === 1) this.drawBand();
-    else this.drawContinuationHeader();
+    if (this.pages.length === 1) {
+      if (this.opts.letterhead) this.drawLetterhead();
+      else this.drawBand();
+    } else this.drawContinuationHeader();
   }
 
   private drawBand() {
@@ -244,6 +282,54 @@ export class PdfWriter {
       this.text(this.fit(row, 9.5, this.contentW), MARGIN_X, titleY - 22 - i * 14, 9.5, "regular", this.pal.bandText);
     });
     this.y = H - bandH - 3 - this.sp(22);
+  }
+
+  /** Page-1 letterhead: logo + business block (left), document title + meta (right), accent rule. */
+  private drawLetterhead() {
+    const lh = this.opts.letterhead!;
+    const H = this.pageH;
+    const top = H - 46;
+    const leftW = this.contentW * 0.56;
+    let ly = top;
+    if (this.logo) {
+      const maxH = 46;
+      const maxW = 150;
+      const scale = Math.min(maxH / this.logo.height, maxW / this.logo.width, 1);
+      const w = this.logo.width * scale;
+      const h = this.logo.height * scale;
+      this.page.drawImage(this.logo, { x: MARGIN_X, y: ly - h + 8, width: w, height: h });
+      ly -= h + 6;
+    }
+    ly -= 6;
+    for (const line of this.wrap(lh.name, 13.5, leftW, "bold")) {
+      this.text(line, MARGIN_X, ly, 13.5, "bold", lh.incomplete && lh.name.startsWith("[") ? C.amber : this.pal.band);
+      ly -= 16;
+    }
+    for (const raw of lh.lines) {
+      const placeholder = raw.startsWith("[") || raw.includes("[not set]") || raw.startsWith("Complete Settings");
+      for (const line of this.wrap(raw, 8.5, leftW)) {
+        this.text(line, MARGIN_X, ly, 8.5, placeholder ? "italic" : "regular", placeholder ? C.amber : C.muted);
+        ly -= 11;
+      }
+    }
+    // Right block
+    const right = this.pageW - MARGIN_X;
+    let ry = top - 6;
+    const title = this.fit(this.opts.title, 22, this.contentW * 0.42, "bold");
+    this.text(title, right - this.width(title, 22, "bold"), ry - 8, 22, "bold", this.pal.band);
+    ry -= 34;
+    const labelW = Math.max(0, ...lh.meta.map(([k]) => this.width(toWinAnsi(k), 8.5, "bold")));
+    for (const [k, v] of lh.meta) {
+      const val = this.fit(v, 9, this.contentW * 0.3, "bold");
+      const vw = this.width(val, 9, "bold");
+      this.text(val, right - vw, ry, 9, "bold", C.ink);
+      const lk = this.fit(k, 8.5, labelW + 2, "regular");
+      this.text(lk, right - vw - 12 - this.width(lk, 8.5), ry, 8.5, "regular", C.muted);
+      ry -= 13;
+    }
+    const bottomY = Math.min(ly, ry) - 4;
+    this.page.drawRectangle({ x: MARGIN_X, y: bottomY, width: this.contentW, height: 1.6, color: this.pal.accent });
+    this.y = bottomY - this.sp(22);
   }
 
   private packMeta(parts: string[], size: number, maxW: number): string[] {
@@ -322,11 +408,13 @@ export class PdfWriter {
     return w;
   }
 
-  bullet(t: string, o: { tag?: { label: string; tone: Tone }; font?: FontKey; color?: RGB } = {}) {
+  bullet(t: string, o: { tag?: { label: string; tone: Tone }; font?: FontKey; color?: RGB; refs?: number[] } = {}) {
     const size = 10;
     const lh = this.sp(14);
     const indent = 16;
-    const textW = this.contentW - indent;
+    const marker = o.refs?.length ? o.refs.map((n) => `[${n}]`).join("") : "";
+    const markerW = marker ? this.width(marker, 6.5) + 3 : 0;
+    const textW = this.contentW - indent - markerW;
     const tagW = o.tag ? this.width(toWinAnsi(o.tag.label), 7, "bold") + 16 : 0;
     const lines = this.wrap(t, size, textW, o.font, textW - tagW);
     this.ensure(lh * Math.min(lines.length, 2));
@@ -338,9 +426,39 @@ export class PdfWriter {
         if (o.tag) x += this.pill(o.tag.label, x, this.y + 0.5, o.tag.tone) + 6;
       }
       this.text(line, x, this.y, size, o.font, o.color ?? C.ink);
+      if (marker && i === lines.length - 1) {
+        this.text(marker, x + this.width(line, size, o.font) + 1.5, this.y + 4, 6.5, "regular", this.pal.accent);
+      }
       this.y -= lh;
     });
     this.y -= this.sp(3);
+  }
+
+  /** Side-by-side labelled address blocks (Bill to / Participant / …). */
+  parties(parties: { label: string; lines: string[] }[]) {
+    if (parties.length === 0) return;
+    const gutter = 18;
+    const n = parties.length;
+    const colW = (this.contentW - gutter * (n - 1)) / n;
+    const wrapped = parties.map((p) => p.lines.flatMap((l) => this.wrap(l, 9, colW - 4)));
+    const h = 14 + Math.max(...wrapped.map((w) => w.length)) * 12;
+    this.ensure(h + 8);
+    parties.forEach((p, i) => {
+      const x = MARGIN_X + i * (colW + gutter);
+      this.text(this.fit(p.label.toUpperCase(), 7.5, colW, "bold"), x, this.y, 7.5, "bold", this.pal.accent);
+      this.page.drawLine({ start: { x, y: this.y - 4 }, end: { x: x + colW, y: this.y - 4 }, thickness: 0.6, color: C.rule });
+      (wrapped[i] ?? []).forEach((line, li) => {
+        const placeholder = line.startsWith("[") || line.includes("[not");
+        this.text(line, x, this.y - 16 - li * 12, 9, li === 0 && !placeholder ? "bold" : placeholder ? "italic" : "regular", placeholder ? C.amber : C.ink);
+      });
+    });
+    this.y -= h + this.sp(10);
+  }
+
+  /** Forces a new page (e.g. before an appendix). */
+  pageBreak() {
+    this.newPage();
+    this.justHeaded = false;
   }
 
   callout(title: string, body: string | null, tone: Tone) {
@@ -383,7 +501,7 @@ export class PdfWriter {
     );
   }
 
-  table(cols: Column[], rows: (string | Cell)[][], o: { header?: boolean; zebra?: boolean; size?: number; padY?: number } = {}) {
+  table(cols: Column[], rows: (string | Cell)[][], o: { header?: boolean; zebra?: boolean; size?: number; padY?: number; rowKinds?: ("item" | "sub")[] } = {}) {
     if (this.justHeaded) this.y += this.sp(9);
     this.justHeaded = false;
     const size = o.size ?? 9;
@@ -428,8 +546,13 @@ export class PdfWriter {
         this.newPage();
         drawHeader();
       }
-      if ((o.zebra ?? true) && r % 2 === 1) {
+      const sub = o.rowKinds?.[r] === "sub";
+      const nextSub = o.rowKinds?.[r + 1] === "sub";
+      if ((o.zebra ?? true) && !o.rowKinds && r % 2 === 1) {
         this.page.drawRectangle({ x: MARGIN_X, y: this.y - h, width: this.contentW, height: h, color: C.zebra });
+      }
+      if (o.rowKinds && !sub) {
+        this.page.drawRectangle({ x: MARGIN_X, y: this.y - h, width: this.contentW, height: h, color: this.pal.accentSoft });
       }
       let x = MARGIN_X;
       cells.forEach((c, i) => {
@@ -443,7 +566,7 @@ export class PdfWriter {
         x += w;
       });
       this.y -= h;
-      this.rule(this.y, MARGIN_X, this.pageW - MARGIN_X, 0.5);
+      if (!(o.rowKinds && nextSub)) this.rule(this.y, MARGIN_X, this.pageW - MARGIN_X, 0.5);
     });
     this.y -= this.sp(12);
   }
@@ -469,7 +592,7 @@ export class PdfWriter {
   }
 
   /** Signature lines (two per row): a signature rule + a date rule, label (and name) underneath. */
-  signatures(statement: string | null, lines: { label: string; name?: string | null }[]) {
+  signatures(statement: string | null, lines: { label: string; name?: string | null; signed?: string | null; date?: string | null }[]) {
     if (statement) this.paragraph(statement, { size: 9.5, gap: 6 });
     const gutter = 24;
     const colW = (this.contentW - gutter) / 2;
@@ -482,6 +605,11 @@ export class PdfWriter {
         const x0 = MARGIN_X + j * (colW + gutter);
         const sigEnd = x0 + colW * 0.68;
         const dateStart = x0 + colW * 0.74;
+        if (l.signed) {
+          const sl = this.wrap(l.signed, 8, sigEnd - x0, "italic").slice(0, 2);
+          sl.forEach((line, li) => this.text(line, x0, this.y + 4 + (sl.length - 1 - li) * 10, 8, "italic", this.pal.band));
+        }
+        if (l.date) this.text(this.fit(l.date, 9, x0 + colW - dateStart), dateStart, this.y + 4, 9, "regular", C.ink);
         this.rule(this.y, x0, sigEnd, 0.8, C.ink);
         this.rule(this.y, dateStart, x0 + colW, 0.8, C.ink);
         this.text(this.fit(l.label, 8.5, sigEnd - x0, "bold"), x0, this.y - 11, 8.5, "bold", C.muted);
@@ -504,6 +632,23 @@ export class PdfWriter {
   async finish(): Promise<Uint8Array> {
     const total = this.pages.length;
     this.pages.forEach((p, i) => {
+      if (this.opts.watermark) {
+        const wm = toWinAnsi(this.opts.watermark.toUpperCase());
+        const size = Math.min(54, (this.pageW * 1.05) / Math.max(1, this.width(wm, 1, "bold")));
+        const w = this.width(wm, size, "bold");
+        const ang = Math.atan2(this.pageH, this.pageW);
+        const cx = this.pageW / 2;
+        const cy = this.pageH / 2;
+        p.drawText(wm, {
+          x: cx - (Math.cos(ang) * w) / 2 + (Math.sin(ang) * size) / 3,
+          y: cy - (Math.sin(ang) * w) / 2 - (Math.cos(ang) * size) / 3,
+          size,
+          font: this.font("bold"),
+          color: C.red,
+          opacity: 0.13,
+          rotate: degrees((ang * 180) / Math.PI),
+        });
+      }
       const lineY = 46;
       if (this.opts.banner) {
         p.drawRectangle({ x: MARGIN_X, y: lineY + 8, width: this.contentW, height: 16, color: C.amberFill, borderColor: C.amberBorder, borderWidth: 0.6 });

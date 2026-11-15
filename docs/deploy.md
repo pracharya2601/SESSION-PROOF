@@ -111,14 +111,14 @@ These paths authenticate themselves, and the phone has no Access session:
 | Access path (bypass) | Authenticates with | Code |
 |---|---|---|
 | `/api/device/*` | `Authorization: Bearer vfad_…`. SHA-256 lookup; a revoked device gets `401 DEVICE_REVOKED`; the provider must still exist. `requireDevice` runs for **every** `/api/device/*` path, before any other handler | `src/devices/auth.ts`, `src/api/device.ts` |
-| `/api/visits/*/stream` | `?token=`: an HMAC stream token scoped to that one visit, valid 4 h, with a separate key derivation from `SESSION_SECRET` | `src/api/visits.ts` `visitStreamRoutes`, `src/band/token.ts` |
-| `/api/visits/*/stop` | `?token=` (same token). POSTs also need `Origin` = the request origin | same |
-| `/api/visits/*/status` | `?token=` | same |
+| `/api/visits/*/stream` | the stream token in `Sec-WebSocket-Protocol: vfa-stream, vfa-token.<t>` (or a first `auth` message, §13): an HMAC token scoped to that one visit, valid 4 h, with a separate key derivation from `SESSION_SECRET`. Deprecated: `?token=` | `src/api/visits.ts` `visitStreamRoutes`, `src/band/token.ts` |
+| `/api/visits/*/stop` | `Authorization: Bearer <stream token>` (deprecated: `?token=`). POSTs also need `Origin` = the request origin | same |
+| `/api/visits/*/status` | `Authorization: Bearer <stream token>` (deprecated: `?token=`) | same |
 | `/api/health` | public; returns only modes and binding booleans | `src/api/health.ts` |
 
 Everything else (`/`, `/assets/*`, `/auth/*`, all other `/api/*`) stays behind Access. The Worker then requires the Access identity there (`requireActor`).
 
-**The catch.** Access path rules can't match query strings ([Application paths](https://developers.cloudflare.com/cloudflare-one/access-controls/policies/app-paths/), updated 2026-04-17). So `/stop`, `/status` and `/stream` are bypassed **with or without** `?token=`. Without a token, those routes fall through to the cookie/Access branch (`requireActor`). Today that branch **trusts the `Cf-Access-Authenticated-User-Email` header** (H2). On a bypassed path Access does not authenticate the request, and Cloudflare does not document stripping a client-sent copy of that header. An attacker who knows a provider's email could therefore send:
+**The catch.** Access path rules can't match query strings ([Application paths](https://developers.cloudflare.com/cloudflare-one/access-controls/policies/app-paths/), updated 2026-04-17). So `/stop`, `/status` and `/stream` are bypassed **with or without** a stream token. Without a token, those routes fall through to the cookie/Access branch (`requireActor`). Today that branch **trusts the `Cf-Access-Authenticated-User-Email` header** (H2). On a bypassed path Access does not authenticate the request, and Cloudflare does not document stripping a client-sent copy of that header. An attacker who knows a provider's email could therefore send:
 
 ```
 POST https://<host>/api/visits/<id>/stop        (no token)
@@ -183,7 +183,7 @@ curl -si https://<host>/api/sessions | head -1        # 302 to <team>.cloudflare
 curl -si https://<host>/api/device/me | head -1       # 401 UNAUTHENTICATED from the Worker (JSON), not an Access page
 ```
 
-**Web UI side effect.** The web page's own **Stop** (`src/ui/api.ts` `stopVisit`) calls `POST /api/visits/:id/stop` **without** `?token=`, and that path is now bypassed. Access doesn't add identity headers to bypassed requests, so this call returns 401 until the JWT check also accepts the `CF_Authorization` cookie, as specified below. The browser sends that cookie to the same host. The phone flow is not affected.
+**Web UI side effect.** The web page's own **Stop** (`src/ui/api.ts` `stopVisit`) calls `POST /api/visits/:id/stop` **without** a stream token, and that path is now bypassed. Access doesn't add identity headers to bypassed requests, so this call returns 401 until the JWT check also accepts the `CF_Authorization` cookie, as specified below. The browser sends that cookie to the same host. The phone flow is not affected.
 
 ### 5.4 Access JWT verification (implemented)
 
@@ -299,7 +299,7 @@ The deploy output should list `DB`, `SESSION_QUEUE`, `SESSION_WORKFLOW` and `ASS
    ```
    Expect **401**. A **404 "Visit not found"** means the forged identity was accepted (H2 not fixed). Stop and fix §5.4 before going further.
 4. **Pair the phone**: before Access works, use the operator script: `node scripts/platform/pair-device-remote.mjs --out <file> --name "iPhone"`. It writes the key and the `glasscam://pair?…` link to `<file>` (mode 0600) and never prints them; revoke with `--revoke dev_…`. Once Access works: web → **Settings → Devices** → name it → **Pair a phone**. The QR/link is `glasscam://pair?server=$ORIGIN&key=vfad_…`. `server` comes from `PUBLIC_APP_ORIGIN`; if the page warns "localhost", the vars are wrong. Scan it with GlassCam. The key is shown once; it is a secret.
-5. **Phone visit**: in GlassCam pick a client (e.g. `C-104`) → start → record → stop. The phone calls `/api/device/*` with the bearer key and streams to `wss://…/api/visits/<id>/stream?token=…`. Within ~1 min the session appears in Today as NEEDS_REVIEW.
+5. **Phone visit**: in GlassCam pick a client (e.g. `C-104`) → start → record → stop. The phone calls `/api/device/*` with the bearer key and streams to `wss://…/api/visits/<id>/stream`, with the token in `Sec-WebSocket-Protocol`. Within ~1 min the session appears in Today as NEEDS_REVIEW.
 6. **Pipeline**: `npx wrangler tail --env production` (look for `heartbeat.done`, the queue handling, `workflow.completed`; no transcript text, emails or tokens), and `npx wrangler workflows instances list vexo-session-workflow`.
 7. Review → approve → export, as in `docs/runbook.md` §17.5 steps 9–16.
 
@@ -356,7 +356,7 @@ DNS: a resolver that looked the name up before the custom domain existed caches 
 | Device `me` / `clients` | 200; transcribers `deepgram,device`; C-104 listed |
 | Band visit, real Opus (796 packets, ~16 s) → wss → Deepgram | 3 final segments, 50 words, 0 lost packets |
 | Stop via device API → queue → Workflow | session `NEEDS_REVIEW`; workflow instance waiting for approval |
-| `wrangler tail` | no device key, Deepgram key, email or client name; `Authorization` shown as REDACTED. **But** the stream URL's `?token=` appears in the logged request URL (§13) |
+| `wrangler tail` | no device key, Deepgram key, email or client name; `Authorization` shown as REDACTED. Stream URLs carry no token (§13); a `stream.legacy_query_token` event means an old client still sent `?token=`, which then is in the logged URL |
 
 Not verified yet: anything behind Access (web login, review/approve/export, PDF CPU time), because Access isn't set up.
 
@@ -373,11 +373,14 @@ While running the band pipeline locally, `wrangler dev` (wrangler 4.86's bundled
 
 Locally: restart `npm run dev`. A queue message lost in the crash leaves a session stuck in QUEUED; reset it with **Reset demo session (dev)**. Upgrading wrangler (4.162 is current) is the suggested fix, as a separate change.
 
-## 13. Known issue: the stream token is visible in request logs
+## 13. The stream token stays out of request URLs
 
-The band stream authenticates with `wss://…/api/visits/<id>/stream?token=…`. Cloudflare records the full request URL, query string included, in `wrangler tail` and (with `observability.enabled`) in Workers Logs. `Authorization` headers are redacted there; query strings are not. The token is scoped to one visit and valid for 4 h. Anyone with read access to the account's logs could replay it for that window: they could stream into the visit, or read its status, or stop it.
+Cloudflare records the full request URL, query string included, in `wrangler tail` and (with `observability.enabled`) in Workers Logs. `Authorization` headers are redacted there; query strings are not. The band stream used to authenticate with `wss://…/api/visits/<id>/stream?token=…`, so anyone with read access to the account's logs could replay a visit's token for its 4 h lifetime.
 
-Mitigations, none applied yet (they belong to the band/visits code):
-- Have the bridge send the token in `Sec-WebSocket-Protocol`, or in the first WebSocket message, instead of the URL. GlassCam would need the same change.
-- Shorten the token lifetime, or make it single-use for the upgrade.
-- Or accept the risk for a demo: only the account owner can read these logs.
+Fixed (2026-11-14):
+- `streamUrl` (visits and recordings) carries no token. The token comes back as `streamToken`.
+- The stream authenticates with `Sec-WebSocket-Protocol: vfa-stream, vfa-token.<token>`, and the server echoes `vfa-stream`. The fallback is a first message `{"type":"auth","token":"…"}` within 5 s; missing or late auth closes with 1008. Stop and status take `Authorization: Bearer <token>`. Protocol: [band-bridge.md §2](band-bridge.md#2-stream).
+- Updated clients: the browser recorder, GlassCam (`VisitStreamer.swift`, `URLSessionWebSocketTask` with protocols), and `scripts/band/*.mjs`.
+- Backward compatibility for one release: `?token=` is still accepted on stream, stop and status. Each use logs `stream.legacy_query_token` with `{ route, uses }` (a per-isolate counter, never the token). To find old clients, search Workers Logs for that event. Then remove the `?token=` fallback (`streamCredential` / `httpStreamToken` in `src/api/visits.ts`).
+- Rollout order: deploy the server first, then install the new GlassCam build. A new GlassCam against an old server cannot stream, because the old server only reads `?token=`. An old GlassCam against the new server cannot parse a token-less `streamUrl`, so it needs the update too.
+- Still applies: the token is scoped to one visit and valid for 4 h. A token pasted into a URL by hand would still be logged.

@@ -20,10 +20,26 @@ export function openAiStyleTool(req: InferenceRequest) {
   };
 }
 
+/**
+ * Reasoning models (gpt-5 family, o-series) reject `max_tokens` and need `max_completion_tokens`
+ * (which also budgets their hidden reasoning tokens). Matches "gpt-5", "gpt-5-mini", "o1", "o3-mini",
+ * "o4-mini", with or without an "openai/" style prefix.
+ */
+export function isOpenAiReasoningModel(model: string): boolean {
+  const m = model.trim().toLowerCase().replace(/^.*\//, "");
+  return /^gpt-5(?:[.\-]|$)/.test(m) || /^o\d(?:[.\-]|$)/.test(m);
+}
+
+/** Reasoning models spend most of their completion budget thinking; give them room. */
+export const REASONING_MIN_COMPLETION_TOKENS = 16_000;
+
 export function buildOpenAiBody(model: string, req: InferenceRequest) {
+  const limit = isOpenAiReasoningModel(model)
+    ? { max_completion_tokens: Math.max(req.maxTokens, REASONING_MIN_COMPLETION_TOKENS) }
+    : { max_tokens: req.maxTokens };
   return {
     model,
-    max_tokens: req.maxTokens,
+    ...limit,
     messages: [
       { role: "system", content: req.system },
       { role: "user", content: req.user },

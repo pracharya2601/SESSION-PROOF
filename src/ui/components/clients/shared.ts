@@ -13,6 +13,10 @@ export const LIMITS = {
   authorizationNumber: 80,
   fiscalIntermediary: 120,
   caseManager: 120,
+  uciNumber: 20,
+  fmsAddress: 300,
+  authorizationOverride: 80,
+  representativeName: 120,
   notes: 2000,
   fieldLabel: 60,
   fieldValue: 300,
@@ -81,6 +85,10 @@ export interface ClientDraft {
   fiscalIntermediary: string;
   authorizedHours: string;
   caseManager: string;
+  uciNumber: string;
+  fmsAddress: string;
+  authorizationOverride: string;
+  representativeName: string;
   customFields: (CustomField & { uid: string })[];
   templates: Record<FileKind, string | null>;
   notes: string;
@@ -102,6 +110,10 @@ export function draftFromRecord(c: ClientRecord): ClientDraft {
     fiscalIntermediary: c.fiscalIntermediary ?? "",
     authorizedHours: c.authorizedHours == null ? "" : String(c.authorizedHours),
     caseManager: c.caseManager ?? "",
+    uciNumber: c.uciNumber ?? "",
+    fmsAddress: c.fmsAddress ?? "",
+    authorizationOverride: c.authorizationOverride ?? "",
+    representativeName: c.representativeName ?? "",
     customFields: c.customFields.map((f) => ({ ...f, uid: newUid() })),
     templates: { ...c.templates },
     notes: c.notes ?? "",
@@ -120,6 +132,10 @@ export function emptyInput(clientRef: string): ClientInput {
     fiscalIntermediary: null,
     authorizedHours: null,
     caseManager: null,
+    uciNumber: null,
+    fmsAddress: null,
+    authorizationOverride: null,
+    representativeName: null,
     customFields: [],
     templates: { session_note: null, invoice: null, approval_record: null },
     notes: null,
@@ -145,7 +161,19 @@ export function draftToInput(d: ClientDraft): { input: ClientInput; errors: Draf
   if ("error" in h) errors.authorizedHours = h.error;
   else authorizedHours = h.hours;
 
-  const textFields = ["displayName", "preferredName", "fundingSource", "authorizationNumber", "fiscalIntermediary", "caseManager", "notes"] as const;
+  const textFields = [
+    "displayName",
+    "preferredName",
+    "fundingSource",
+    "authorizationNumber",
+    "fiscalIntermediary",
+    "caseManager",
+    "uciNumber",
+    "fmsAddress",
+    "authorizationOverride",
+    "representativeName",
+    "notes",
+  ] as const;
   for (const k of textFields) {
     if (d[k].trim().length > LIMITS[k]) errors[k] = `At most ${LIMITS[k]} characters.`;
   }
@@ -167,6 +195,10 @@ export function draftToInput(d: ClientDraft): { input: ClientInput; errors: Draf
       fiscalIntermediary: opt(d.fiscalIntermediary),
       authorizedHours,
       caseManager: opt(d.caseManager),
+      uciNumber: opt(d.uciNumber),
+      fmsAddress: opt(d.fmsAddress),
+      authorizationOverride: opt(d.authorizationOverride),
+      representativeName: opt(d.representativeName),
       customFields: fields,
       templates: { ...d.templates },
       notes: opt(d.notes),

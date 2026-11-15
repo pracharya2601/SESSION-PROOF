@@ -5,6 +5,7 @@ import type { ApiDeps, AppBindings } from "./deps";
 import { devRoutes } from "./dev";
 import { healthRoutes } from "./health";
 import { reviewRoutes } from "./review";
+import { assistantRoutes } from "./assistant";
 import { sessionRoutes } from "./sessions";
 import { syncRoutes } from "./sync";
 import { settingsRoutes } from "./settings";
@@ -19,10 +20,13 @@ import { runsRoutes } from "./runs";
 import { visitsRoutes, visitStreamRoutes } from "./visits";
 import { deviceRoutes } from "./device";
 import { offlineVisitRoutes } from "./offline-visits";
+import { recordingDeviceRoutes, recordingStreamRoutes, recordingWebRoutes } from "./recordings";
 import { devicesRoutes } from "./devices";
 import { hasDeviceBearer } from "../devices";
 import { reviewLinkAdminRoutes, reviewLinkRoutes } from "./review-links";
 import { notificationRoutes } from "./notifications";
+import { archiveRoutes } from "./archive";
+import { recordingTimelineRoutes } from "./recording-timeline";
 
 export { ok } from "./respond";
 export { healthRoutes } from "./health";
@@ -53,6 +57,8 @@ export function createApi(deps: ApiDeps): Hono<AppBindings> {
   // Paired-device API (GlassCam): device-key bearer auth, no cookie.
   app.route("/", deviceRoutes(deps));
   app.route("/", offlineVisitRoutes(deps)); // offline recordings (device key): docs/offline-recording.md
+  app.route("/", recordingDeviceRoutes(deps)); // client-less recordings (device key) + stream token: docs/recordings.md
+  app.route("/", recordingStreamRoutes(deps));
   // Review links (/r/<token>): the token is the credential, no cookie. Mutations keep originGuard.
   app.route("/", reviewLinkRoutes(deps));
 
@@ -63,6 +69,7 @@ export function createApi(deps: ApiDeps): Hono<AppBindings> {
   app.route("/", settingsRoutes(deps));
   app.route("/", devRoutes(deps));
   app.route("/", reviewRoutes(deps));
+  app.route("/", assistantRoutes(deps)); // review assistant: proposes edits only (src/assistant)
   // v2: files, deliveries (drive + email drafts), settings, cloud connections.
   // connectionsRoutes also serves GET /auth/connect/:provider/callback, which is
   // outside /api/* and therefore not behind requireActor (state row carries identity).
@@ -77,6 +84,9 @@ export function createApi(deps: ApiDeps): Hono<AppBindings> {
   app.route("/", runsRoutes(deps));
   // Band visits: record a visit with a Vexo band; the transcript becomes the session evidence.
   app.route("/", visitsRoutes(deps));
+  app.route("/", recordingWebRoutes(deps)); // recordings + partition outcome (web)
+  app.route("/", recordingTimelineRoutes(deps)); // recording detail: calendar lanes
+  app.route("/", archiveRoutes(deps)); // archive / unarchive / delete + audit (src/archive)
   // Paired devices: pair / list / revoke (Settings → Devices).
   app.route("/", devicesRoutes(deps));
   // Approval hand-off: in-app inbox, Settings → Notifications, review-link management.

@@ -1,0 +1,70 @@
+{
+  "id": "scn-320-normal",
+  "title": "SDP 320 Community Living Supports (normal)",
+  "purpose": "Baseline band scenario: meal planning + laundry, no progress stated, schedule goal never discussed.",
+  "tags": [
+    "scenario",
+    "sdp"
+  ],
+  "fromScenario": "sdp-320-normal",
+  "sdpCode": "320",
+  "fake": {
+    "keywords": {
+      "goal_meal_planning": [
+        "meals",
+        "shopping list",
+        "cupboard"
+      ],
+      "goal_laundry": [
+        "laundry",
+        "setting"
+      ],
+      "goal_schedule": [
+        "schedule",
+        "calendar"
+      ]
+    },
+    "bad": [
+      {
+        "section": "progress",
+        "text": "Robin can now plan meals independently every week.",
+        "cite": [
+          "ev_002"
+        ],
+        "label": "generalisation"
+      }
+    ]
+  },
+  "expect": {
+    "mustAddress": [
+      "goal_meal_planning"
+    ],
+    "mustStayUnknown": [
+      "goal_schedule"
+    ],
+    "forbiddenClaims": [
+      {
+        "id": "gen-every-week",
+        "pattern": "every week|can now|now independent|plans? meals independently",
+        "kind": "generalisation"
+      },
+      {
+        "id": "cooked-pasta",
+        "pattern": "cooked (the )?(monday )?pasta",
+        "kind": "discussed_not_achieved",
+        "note": "pasta is planned for next visit"
+      }
+    ],
+    "requiredCitations": [
+      {
+        "target": "goal_meal_planning",
+        "anyOf": [
+          "ev_001",
+          "ev_002",
+          "ev_004"
+        ]
+      }
+    ],
+    "approvableAfterDuration": false
+  }
+}

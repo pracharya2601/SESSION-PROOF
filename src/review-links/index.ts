@@ -13,6 +13,7 @@
  *  - Revoked → 410 REVIEW_LINK_REVOKED; expired (7 days) → 410 REVIEW_LINK_EXPIRED;
  *    unknown/malformed → 401 INVALID_REVIEW_LINK. Lookup is by SHA-256(token) only.
  */
+import { gateReviewBundle } from "../services/profile/index";
 import type { SessionDetail } from "../contracts";
 import type { Repository } from "../db/repository";
 import { devicePublicOrigin } from "../devices/link";
@@ -180,7 +181,7 @@ export async function loadSessionDetail(repo: Repository, providerId: string, se
   return {
     session,
     appointment,
-    bundle,
+    bundle: await gateReviewBundle(repo, providerId, bundle, session.status === "NEEDS_REVIEW"),
     approval: currentApproval,
     finalized:
       (final !== null && final.bundleRevision === session.currentBundleRevision) ||

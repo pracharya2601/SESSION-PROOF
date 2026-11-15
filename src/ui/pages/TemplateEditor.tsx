@@ -489,7 +489,7 @@ export default function TemplateEditor({ templateId }: { templateId: string }) {
                   </Field>
                   {kind === "invoice" && (
                     <>
-                      <Field label="Invoice number prefix" hint="Letters, numbers and dashes." error={errors.invoicePrefix}>
+                      <Field label="Invoice number prefix (legacy)" hint="Invoice numbers now come from Settings → Business profile (prefix + next number). This field is kept for older templates." error={errors.invoicePrefix}>
                         <Input
                           className="mono"
                           value={draft.text.invoicePrefix}
@@ -499,7 +499,7 @@ export default function TemplateEditor({ templateId }: { templateId: string }) {
                           onChange={(e) => setText("invoicePrefix", e.target.value)}
                         />
                       </Field>
-                      <Field label="Payment terms">
+                      <Field label="Payment terms" hint="Used when your business profile has no payment terms.">
                         <Textarea rows={2} value={draft.text.paymentTerms} maxLength={500} disabled={disabled} onChange={(e) => setText("paymentTerms", e.target.value)} />
                       </Field>
                       <Field label="Invoice notes">

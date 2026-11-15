@@ -45,6 +45,8 @@ program service services session plan goal goals note notes zip apt unit suite
 good great fine sure right let let's can could would should will shall might must did do does done
 is are was were be been being have has had get got go going went come came see saw look said say tell told
 american english spanish christmas thanksgiving easter
+nobody somebody someone everyone anyone everybody anybody who which whoever both either neither each every
+sorry wow oh ah um uh hmm great awesome nice cool excellent perfect alright next later
 `;
 
 export const NAME_STOPWORDS: ReadonlySet<string> = new Set(STOP_RAW.split(/\s+/).filter(Boolean));
@@ -57,3 +59,28 @@ export const ROLE_SPEAKERS: ReadonlySet<string> = new Set(
     .split(/\s+/)
     .filter(Boolean),
 );
+
+/**
+ * Capitalised words that are commonly NOT person names (places, organisations, brands, programs,
+ * transit, holidays). A capitalised pair containing one of these is never guessed to be a name.
+ */
+const NON_NAME_RAW = `
+new san santa los las el la le de del du saint st fort port mount mt lake river bay beach valley hills hill heights
+springs spring falls park garden gardens square bridge tower towers island islands harbor harbour county city town
+village state states united kingdom republic north south east west northern southern eastern western central upper lower
+golden gate star wars greater downtown uptown midtown airport station terminal mall plaza market center centre building hall house
+target walmart costco safeway kroger publix aldi lidl trader whole foods dollar general tree family depot lowe's
+home goods best buy cvs walgreens rite aid starbucks mcdonald's subway amazon google apple microsoft facebook
+instagram tiktok youtube netflix uber lyft bart muni metro transit amtrak greyhound line express rapid route
+department dept office agency administration services service social security medicaid medicare medi-cal calfresh
+snap wic ssi ssdi dmv irs usps fedex ups bank credit union insurance health healthcare medical care clinic hospital
+pharmacy urgent emergency regional university college school academy institute high middle elementary primary
+community program programs day center club league team church temple mosque synagogue library museum zoo theater
+theatre cinema gym ymca ywca goodwill salvation army red cross food stamps housing authority court police fire
+monday tuesday wednesday thursday friday saturday sunday christmas easter halloween thanksgiving hanukkah ramadan
+diwali new year's valentine's independence labor memorial veterans
+english spanish french chinese mandarin cantonese vietnamese korean tagalog arabic russian
+dear hi hello hey thanks thank good morning afternoon evening night happy merry
+okay ok yes no please sorry great nice cool awesome wow oh well so
+`;
+export const NON_NAME_WORDS: ReadonlySet<string> = new Set(NON_NAME_RAW.split(/\s+/).filter(Boolean));

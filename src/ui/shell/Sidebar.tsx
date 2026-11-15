@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { motion, useReducedMotion } from "framer-motion";
 import {
   Activity,
+  AudioLines,
   CalendarCheck2,
   Ellipsis,
   FolderOpen,
@@ -34,6 +35,7 @@ export const NAV_GROUPS: { id: string; label: string; items: NavItem[] }[] = [
     items: [
       { key: "today", label: "Today", href: "#/", icon: CalendarCheck2 },
       { key: "visit", label: "Record visit", href: "#/visit", icon: Mic },
+      { key: "recordings", label: "Recordings", href: "#/recordings", icon: AudioLines },
       { key: "runs", label: "Runs", href: "#/runs", icon: Activity },
       { key: "files", label: "Files", href: "#/files", icon: FolderOpen },
     ],

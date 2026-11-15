@@ -83,14 +83,14 @@ describe("generateDocuments", () => {
     const lines = section(d, "progress_record").lines;
     expect(lines).toHaveLength(1);
     expect(lines[0]).toEqual({
-      text: `Provider confirmed: ${EXPECTED.demoProgressConfirmation}`,
+      text: `Provider-confirmed (not evidence): ${EXPECTED.demoProgressConfirmation}`,
       claimIds: [],
       evidenceIds: [],
       attestationIds: ["att_progress_1"],
       origin: "provider_attestation",
     });
     const conf = section(d, "time_summary").lines.at(-1)!;
-    expect(conf.text).toBe("Confirmed duration: 90 minutes (provider confirmed)");
+    expect(conf.text).toBe("Confirmed duration: 90 minutes (provider-confirmed, not evidence)");
     expect(conf.origin).toBe("provider_attestation");
   });
 

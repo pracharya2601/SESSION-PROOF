@@ -87,7 +87,9 @@ const start = await dev("POST", "/api/device/visits", { clientRef: CLIENT, bandN
 check("start visit", start.visit.status === "recording" && start.streamUrl.startsWith("wss://"), `transcriber=${start.visit.transcriber}`);
 
 const finals = [];
-const ws = new WebSocket(start.streamUrl);
+check("stream URL carries no token", !new URL(start.streamUrl).searchParams.has("token"), "");
+// Token in the subprotocol, never in the URL (Cloudflare logs URLs); never log the token.
+const ws = new WebSocket(start.streamUrl, ["vfa-stream", `vfa-token.${start.streamToken}`]);
 ws.binaryType = "arraybuffer";
 const done = new Promise((resolve) => {
   ws.onmessage = (e) => {

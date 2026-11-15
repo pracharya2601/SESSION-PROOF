@@ -3,11 +3,13 @@
  * the review service (after edits); both rebuild documents/checks/billing
  * identically from extracted facts + attestations.
  */
-import { SessionBundle } from "../contracts";
+import { SessionBundle, parseClaimRejection } from "../contracts";
 import type { AssembleBundleFn, FactClaim, ProviderAttestation, SessionFacts } from "../contracts";
 import { generateDocuments, latestDurationAttestation } from "./documents";
 import { validateRequirements } from "./rules";
-import { calculateBilling } from "./billing";
+import { buildChecklist } from "./rules/checklist";
+import { calculateBilling, roundHalfUpCents } from "./billing";
+import { applyMinuteRounding, buildInvoice } from "./billing/invoice";
 
 /** Strict positive integer parse ("90" ok; "90.5", "1e2", " 9 0", "0", "-5" -> null). */
 export function parseConfirmedMinutes(text: string): number | null {
@@ -26,6 +28,37 @@ export function attestationClaimId(attestationId: string): string {
   return `claim_${attestationId}`.slice(0, 128);
 }
 
+/** Claims the provider removed (latest claim_rejected attestations), by claim id. */
+export function rejectedClaimsFrom(attestations: ProviderAttestation[]): Map<string, { reason: string; attestationId: string }> {
+  const out = new Map<string, { reason: string; attestationId: string }>();
+  for (const a of attestations) {
+    const r = parseClaimRejection(a);
+    if (r) out.set(r.claimId, { reason: r.reason, attestationId: a.id });
+  }
+  return out;
+}
+
+/**
+ * Removes provider-rejected claims from facts: they leave the note, the invoice task lines and goal
+ * coverage (a goal left with no claims becomes "unknown"). extractedFacts keeps them for audit.
+ */
+export function removeRejectedClaims(facts: SessionFacts, attestations: ProviderAttestation[]): SessionFacts {
+  const rejected = rejectedClaimsFrom(attestations);
+  if (rejected.size === 0) return facts;
+  const keep = (l: FactClaim[]) => l.filter((c) => !rejected.has(c.id));
+  return {
+    ...facts,
+    activities: keep(facts.activities),
+    observations: keep(facts.observations),
+    progress: keep(facts.progress),
+    followUps: keep(facts.followUps),
+    goals: facts.goals.map((g) => {
+      const claims = keep(g.claims);
+      return claims.length === g.claims.length ? g : { ...g, claims, status: claims.length === 0 ? "unknown" : g.status };
+    }),
+  };
+}
+
 export const PROVIDER_GOAL_CLAIM_TEXT = "The provider confirmed this goal was addressed in the visit.";
 
 /**
@@ -38,7 +71,7 @@ export function mergeAttestations(
   attestations: ProviderAttestation[],
   planGoalIds?: ReadonlySet<string>,
 ): SessionFacts {
-  const copy: SessionFacts = structuredClone(extracted);
+  const copy: SessionFacts = removeRejectedClaims(structuredClone(extracted), attestations);
   const attested: FactClaim[] = attestations
     .filter((a) => a.field === "progress")
     .map((a) => ({
@@ -100,11 +133,53 @@ export const assembleBundle: AssembleBundleFn = (input) => {
     documents,
     attestations,
     evidenceIds: input.evidence.map((e) => e.id),
+    evidence: input.evidence,
     confirmedMinutes,
     evidenceCompleteness: input.provenance.evidenceCompleteness,
+    conversation: config.context?.conversation ?? null,
   });
 
-  const billing = calculateBilling(config.rate, scheduledMinutes, confirmedMinutes);
+  let billing = calculateBilling(config.rate, scheduledMinutes, confirmedMinutes);
+  const rule = config.rate.minuteRounding ?? "exact";
+  if (rule !== "exact" && confirmedMinutes !== null) {
+    // Configured minute rounding: the confirmed minutes stay as confirmed; the amount uses billed minutes.
+    const billedMinutes = applyMinuteRounding(confirmedMinutes, rule);
+    const amountCents = roundHalfUpCents(config.rate.hourlyRateCents, billedMinutes);
+    const usd = `${Math.floor(amountCents / 100)}.${String(amountCents % 100).padStart(2, "0")}`;
+    billing = {
+      ...billing,
+      amountCents,
+      breakdown: `${billing.breakdown} - billed ${billedMinutes} min under rounding rule ${rule}: USD ${usd}`.slice(0, 500),
+    };
+  }
+  const invoice = buildInvoice({
+    appointment,
+    config,
+    facts,
+    attestations,
+    evidence: input.evidence,
+    confirmedMinutes,
+    scheduledMinutes,
+  });
+  billing = { ...billing, invoice };
+  const rejectedById = rejectedClaimsFrom(attestations);
+  const extractedById = new Map(
+    [...extractedFacts.activities, ...extractedFacts.observations, ...extractedFacts.progress, ...extractedFacts.followUps, ...extractedFacts.goals.flatMap((g) => g.claims)].map((c) => [c.id, c]),
+  );
+  const rejectedClaims = [...rejectedById.entries()]
+    .filter(([id]) => extractedById.has(id))
+    .map(([claimId, r]) => ({ claimId, text: extractedById.get(claimId)!.text.slice(0, 2000), reason: r.reason.slice(0, 500), attestationId: r.attestationId }));
+  const checklist = buildChecklist({
+    rejectedClaims,
+    appointment,
+    config,
+    facts,
+    attestations,
+    issues: checks.issues,
+    invoice,
+    evidenceWindow: input.evidenceWindow,
+    confirmedMinutes,
+  });
 
   return SessionBundle.parse({
     sessionId: input.sessionId,
@@ -118,7 +193,7 @@ export const assembleBundle: AssembleBundleFn = (input) => {
     facts,
     attestations,
     documents,
-    checks,
+    checks: { ...checks, checklist },
     billing,
     provenance: input.provenance,
     createdAt: input.createdAt,

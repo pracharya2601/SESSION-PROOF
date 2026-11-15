@@ -51,7 +51,7 @@ describe("documents route", () => {
     await repo.upsertClient(PROVIDER, clientInput({ displayName: "Live Name" }), NOW);
     const { app } = appFor(repo);
     const model = await data<DocModel>(await app.request(`/api/sessions/${SESSION}/documents/session_note`));
-    expect(model.banner ?? "").toMatch(/draft/i);
+    expect(model.watermark ?? "").toMatch(/draft/i);
     await repo.upsertClient(PROVIDER, clientInput({ displayName: "Edited Name" }), NOW);
     const model2 = await data<DocModel>(await app.request(`/api/sessions/${SESSION}/documents/invoice`));
     expect(JSON.stringify(model2)).toContain("Edited Name");

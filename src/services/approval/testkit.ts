@@ -1,5 +1,8 @@
 /** Test helpers (Agent 16): in-memory fake repository + stub assembler. */
+import { formatInvoiceNumber } from "../../contracts";
 import type {
+  InvoiceNumberRecord,
+  ProviderProfile,
   ApprovalRecord,
   AssembleBundleFn,
   FinalBundle,
@@ -126,7 +129,52 @@ export const stubAssemble: AssembleBundleFn = (input) => {
   };
 };
 
+/** Complete fictional business profile (so approval is not blocked by the profile gate). */
+export const TEST_PROFILE: ProviderProfile = {
+  providerId: PROVIDER,
+  updatedAt: null,
+  legalName: "Test Support Services LLC",
+  dba: null,
+  addressLine1: "1 Example Way",
+  addressLine2: null,
+  city: "Sacramento",
+  state: "CA",
+  postalCode: "95814",
+  phone: null,
+  email: null,
+  vendorNumber: "PV0001",
+  npi: null,
+  taxIdLast4: null,
+  remitTo: null,
+  signerName: null,
+  logoDataUrl: null,
+  invoicePrefix: "INV",
+  nextInvoiceNumber: 1,
+  paymentTerms: null,
+};
+
 export class FakeRepo {
+  /** null = provider never saved a business profile (approval blocked). */
+  profile: ProviderProfile | null = { ...TEST_PROFILE };
+  invoiceNumbers = new Map<string, InvoiceNumberRecord>();
+  async getProviderProfile(): Promise<ProviderProfile | null> {
+    return this.profile;
+  }
+  async getInvoiceNumber(sessionId: string, rev: number): Promise<InvoiceNumberRecord | null> {
+    return this.invoiceNumbers.get(`${sessionId}|${rev}`) ?? null;
+  }
+  async ensureInvoiceNumber(providerId: string, sessionId: string, rev: number, now: Date): Promise<InvoiceNumberRecord> {
+    const key = `${sessionId}|${rev}`;
+    const existing = this.invoiceNumbers.get(key);
+    if (existing) return existing;
+    const p = this.profile ?? { ...TEST_PROFILE };
+    const seq = p.nextInvoiceNumber;
+    this.profile = { ...p, nextInvoiceNumber: seq + 1 };
+    const { providerId: _p, updatedAt: _u, ...profile } = p;
+    const rec: InvoiceNumberRecord = { providerId, sessionId, bundleRevision: rev, seq, invoiceNumber: formatInvoiceNumber(p.invoicePrefix, seq), profile, assignedAt: now.toISOString() };
+    this.invoiceNumbers.set(key, rec);
+    return rec;
+  }
   sessions = new Map<string, SessionRecord>();
   bundles = new Map<string, SessionBundle>();
   approvals: ApprovalRecord[] = [];

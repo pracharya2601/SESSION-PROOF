@@ -31,6 +31,8 @@ const Runs = lazy(() => import("./pages/Runs"));
 const RunDetail = lazy(() => import("./pages/RunDetail"));
 const RecordVisit = lazy(() => import("./pages/RecordVisit"));
 const ReviewLink = lazy(() => import("./pages/ReviewLink"));
+const Recordings = lazy(() => import("./pages/Recordings"));
+const RecordingDetail = lazy(() => import("./pages/RecordingDetail"));
 
 /** `/r/<token>` or `#/r/<token>`: a review link opens one visit without signing in (pages/ReviewLink.tsx). */
 const REVIEW_LINK_TOKEN = (/^\/r\/(vfrl_[A-Za-z0-9_-]{43})\/?$/.exec(window.location.pathname) ??
@@ -257,6 +259,8 @@ function AppInner() {
                     {route.name === "runs" && <Runs />}
                     {route.name === "run" && <RunDetail runId={route.runId} />}
                     {route.name === "visit" && <RecordVisit visitId={route.id} />}
+                    {route.name === "recordings" && <Recordings />}
+                    {route.name === "recording" && <RecordingDetail recordingId={route.id} />}
                   </Suspense>
                 </ErrorBoundary>
               </motion.div>
