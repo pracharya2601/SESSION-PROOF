@@ -127,22 +127,71 @@ export function demoNowSlot(now: Date): CalendarEvent | null {
   };
 }
 
+/** One-off appointments added through configuration (env DEMO_EXTRA_EVENTS, JSON array). */
+export interface ExtraEventInput {
+  clientRef: string;
+  startAt: string;
+  endAt: string;
+}
+
+export function parseExtraEvents(raw: string | undefined): ExtraEventInput[] {
+  if (!raw) return [];
+  try {
+    const v = JSON.parse(raw) as unknown;
+    if (!Array.isArray(v)) return [];
+    return v.filter(
+      (e): e is ExtraEventInput =>
+        !!e && typeof e.clientRef === "string" && !Number.isNaN(Date.parse(e.startAt)) && Date.parse(e.endAt) > Date.parse(e.startAt),
+    );
+  } catch {
+    return [];
+  }
+}
+
+function extraEvent(e: ExtraEventInput): CalendarEvent | null {
+  const client = caseloadClient(e.clientRef);
+  if (!client) return null;
+  const startIso = new Date(e.startAt).toISOString();
+  const local = localDateOf(new Date(startIso), SCHEDULE_TIMEZONE);
+  return {
+    eventId: `demo_extra_${slugRef(client.clientRef)}_${ymd(local, "")}_${startIso.slice(11, 16).replace(":", "")}z`,
+    providerId: SCHEDULE_PROVIDER_ID,
+    clientRef: client.clientRef,
+    title: `${client.clientRef} ${client.shortTitle}`,
+    startAt: startIso,
+    endAt: new Date(e.endAt).toISOString(),
+    timezone: SCHEDULE_TIMEZONE,
+    serviceCode: client.serviceCode,
+    location: client.location,
+    status: "confirmed",
+    source: "demo",
+  };
+}
+
 export class DemoCalendarSource implements CalendarSource {
   readonly kind = "demo" as const;
   private readonly nowSlot: boolean;
   private readonly clock: Clock;
+  private readonly extra: CalendarEvent[];
 
-  constructor(opts: DemoCalendarOptions = {}) {
+  constructor(opts: DemoCalendarOptions & { extraEvents?: ExtraEventInput[] } = {}) {
     this.nowSlot = opts.nowSlot ?? false;
     this.clock = opts.clock ?? systemClock;
+    this.extra = (opts.extraEvents ?? []).map(extraEvent).filter((e): e is CalendarEvent => e !== null);
   }
 
   async listEvents(providerId: string, from: Date, to: Date): Promise<CalendarEvent[]> {
     if (providerId !== SCHEDULE_PROVIDER_ID) return [];
     const events = expandWeeklyPattern(from, to);
+    for (const e of this.extra) if (overlaps(e, from, to)) events.push(e);
     if (this.nowSlot) {
       const slot = demoNowSlot(this.clock.now());
-      if (slot && overlaps(slot, from, to)) events.push(slot);
+      // Never let the now-slot overlap a configured appointment (± 15 min), so splits stay unambiguous.
+      const buffer = 15 * 60_000;
+      const clash =
+        slot &&
+        this.extra.some((e) => Date.parse(slot.startAt) < Date.parse(e.endAt) + buffer && Date.parse(e.startAt) - buffer < Date.parse(slot.endAt));
+      if (slot && !clash && overlaps(slot, from, to)) events.push(slot);
     }
     return sortEvents(events);
   }

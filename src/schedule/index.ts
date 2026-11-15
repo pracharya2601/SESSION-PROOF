@@ -11,6 +11,7 @@
  */
 import type { CalendarEvent, CalendarSource, Clock, DriveClientContext, DriveSource } from "../contracts";
 import { DemoCalendarSource } from "./demo-calendar";
+import { parseExtraEvents } from "./demo-calendar";
 import { DemoDriveSource } from "./demo-drive";
 import { addDays, parseYmd, zonedTimeToUtc } from "./time";
 
@@ -54,7 +55,11 @@ function pick(value: string | undefined, name: string): "demo" | "google" {
 
 export function createCalendarSource(env: ScheduleEnv, opts: { clock?: Clock } = {}): CalendarSource {
   if (pick(env.CALENDAR_SOURCE, "CALENDAR_SOURCE") === "google") return new GoogleCalendarSource();
-  return new DemoCalendarSource({ nowSlot: env.DEMO_CALENDAR_NOW_SLOT === "1", clock: opts.clock });
+  return new DemoCalendarSource({
+    nowSlot: env.DEMO_CALENDAR_NOW_SLOT === "1",
+    clock: opts.clock,
+    extraEvents: parseExtraEvents((env as { DEMO_EXTRA_EVENTS?: string }).DEMO_EXTRA_EVENTS),
+  });
 }
 
 export function createDriveSource(env: ScheduleEnv): DriveSource {

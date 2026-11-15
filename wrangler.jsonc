@@ -111,6 +111,8 @@
         "RUNTIME_MODE": "deployed",
         // DEMO calendar: a C-104 slot covering "now" (src/schedule demo-calendar.ts).
         "DEMO_CALENDAR_NOW_SLOT": "1",
+        // One-off demo appointment: Sat 2026-11-14 5:05–5:15 PM PT (C-104).
+        "DEMO_EXTRA_EVENTS": "[{\"clientRef\":\"C-104\",\"startAt\":\"2026-11-15T01:05:00Z\",\"endAt\":\"2026-11-15T01:15:00Z\"}]",
         // The one public origin. All three name the same host: https for the app/device API,
         // wss for the band stream.
         "APP_ORIGIN": "https://field-assist.prakashacharya.com",
