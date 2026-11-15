@@ -157,3 +157,16 @@ describe("approveSession", () => {
     expect(await code(approveSession(deps, actor, SESSION, { expectedRevision: 1, idempotencyKey: key }))).toBe("422:DURATION_NOT_CONFIRMED");
   });
 });
+
+describe("approveSession business profile gate", () => {
+  it("422 DOCUMENTATION_BLOCKERS when the business profile is incomplete; no approval persisted", async () => {
+    const { FakeRepo: Repo, makeDeps: deps, makeBundle: mk, SESSION: S } = await import("./testkit");
+    const repo = new Repo();
+    repo.profile = null;
+    repo.bundles.set(`${S}:1`, mk({ checks: { ruleVersion: "r1", issues: [], canApprove: true }, billing: { ...mk().billing, confirmedMinutes: 60, amountCents: 7500 } }));
+    const { deps: d } = deps(repo);
+    const err = await approveSession(d, { providerId: repo.sessions.get(S)!.providerId } as never, S, { expectedRevision: 1, idempotencyKey: "k-profile-1" }).catch((e: unknown) => e);
+    expect(err).toMatchObject({ status: 422, code: "DOCUMENTATION_BLOCKERS" });
+    expect(repo.persistCalls).toBe(0);
+  });
+});

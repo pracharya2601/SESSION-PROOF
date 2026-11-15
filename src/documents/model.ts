@@ -483,13 +483,13 @@ function serviceLinesTable(c: Ctx): DocBlock {
   const code = serviceCodeOf(b);
   const desc = b.config.plan.serviceDescription;
   const columns = [
-    { label: "Date", width: 0.11 },
-    { label: "SDP code", width: 0.08 },
-    { label: "Service description", width: 0.35 },
+    { label: "Date", width: 0.12 },
+    { label: "Code", width: 0.07 },
+    { label: "Service description", width: 0.33 },
     { label: "Time in – out", width: 0.16 },
-    { label: "Minutes", width: 0.09, align: "right" as const },
-    { label: "Rate", width: 0.09, align: "right" as const },
-    { label: "Amount", width: 0.12, align: "right" as const },
+    { label: "Min", width: 0.07, align: "right" as const },
+    { label: "Rate", width: 0.12, align: "right" as const },
+    { label: "Amount", width: 0.13, align: "right" as const },
   ];
   const head = [date, code, desc, timeInOut(b, tz), minutes, `${money(rate)}/hr`];
   if (!inv || inv.lines.length === 0) {
@@ -892,7 +892,7 @@ export function buildDocModel(kind: FileKind, input: DocModelInput): DocModel {
   let footerNote: string;
   let revisionLabel: string;
   if (kind === "invoice") {
-    footerNote = has(t.theme.footerNote) ? t.theme.footerNote : [business, `Invoice # ${invoiceNumberText(c)}`].filter(has).join(" · ");
+    footerNote = has(t.theme.footerNote) ? t.theme.footerNote : business ?? "";
     revisionLabel = approved ? `Invoice # ${invoiceNumberText(c)}` : INVOICE_DRAFT_WATERMARK;
   } else if (kind === "session_note") {
     footerNote = has(t.theme.footerNote) ? t.theme.footerNote : [business, "Session note", participant, mdy(a.startAt, tz)].filter(has).join(" · ");

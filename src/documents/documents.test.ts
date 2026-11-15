@@ -163,7 +163,7 @@ describe("buildDocModel", () => {
     const s = docText(m);
     for (const v of ["Example Fiscal Services, Inc.", "PO Box 0000", "Alex Morgan", "UCI # 0000000", "Authorization # SP-2026-000123", "Financial Management Services (bill payer)"]) expect(s).toContain(v);
     const table = m.blocks.find((b) => b.type === "table");
-    expect(table?.type === "table" && table.columns.map((c) => c.label)).toEqual(["Date", "SDP code", "Service description", "Time in – out", "Minutes", "Rate", "Amount"]);
+    expect(table?.type === "table" && table.columns.map((c) => c.label)).toEqual(["Date", "Code", "Service description", "Time in – out", "Min", "Rate", "Amount"]);
     if (table?.type !== "table") throw new Error("no table");
     expect(table.rowKinds?.[0]).toBe("item");
     expect(table.rows[0]!.slice(0, 6)).toEqual(["11/13/2026", "320", "Community Living Supports — independent living skills", "10:00 AM – 11:30 AM", "90", "$75.00/hr"]);
@@ -176,7 +176,7 @@ describe("buildDocModel", () => {
     expect(s).toContain("All services specified in this invoice have been provided to the participant.");
     expect(s).toContain("/s/ Jamie Ortega — signed electronically Nov 13, 2026");
     expect(s).toContain("Remit to");
-    expect(m.footer.note).toContain("Invoice # HLS-1041");
+    expect(m.footer.revisionLabel).toBe("Invoice # HLS-1041");
   });
 
   it("invoice + note: no synthetic / demo / estimate / fixture / evidence-id / AI wording (draft or approved)", () => {
