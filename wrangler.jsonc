@@ -94,14 +94,16 @@
       "triggers": { "crons": ["*/5 * * * *"] },
       // Workers Logs (console.log JSON lines are already redacted by src/security log()).
       "observability": { "enabled": true },
+      "r2_buckets": [{ "binding": "AUDIO_TMP", "bucket_name": "vexo-audio-tmp-production" }],
       "vars": {
         // Calendar evidence stays synthetic (no live Vexo MCP client is wired). Band visits
         // always use their own recorded transcript, whatever this says.
         "EVIDENCE_MODE": "fixture",
         // DECIDE: "fixture" returns canned demo facts (no AI key); "live" sends the
         // PII-scrubbed transcript to the provider's AI vendor and needs an AI key secret.
-        "EXTRACTION_MODE": "fixture",
-        "AI_MODEL": "claude-sonnet-5-5",
+        "EXTRACTION_MODE": "live",
+        "AI_PROVIDER": "openai",
+        "AI_MODEL": "gpt-4.1",
         // Owner decision (2026-11-14): open public access, no login. Every visitor acts as
         // PUBLIC_PROVIDER_ID. Switch back to "access" (+ ACCESS_TEAM_DOMAIN/ACCESS_AUD) to require login.
         "AUTH_MODE": "public",
